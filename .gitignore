@@ -1,0 +1,15 @@
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+/previewer
+/build
+/.hvigor
+/entry/build
+/entry/oh_modules
+/.appanalyzer
+/.cache
+*.har
+*.hap
+*.bin
+/BuildProfile.ets

@@ -1,0 +1,13 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "hanzi-kid-game",
+  "version": "1.0.0",
+  "description": "识字小乐园 - 幼儿识字游戏",
+  "main": "",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.19"
+  }
+}
