@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "识字小乐园主模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "幼儿识字游戏"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "识字小乐园"
+    }
+  ]
+}
