@@ -1,10 +1,11 @@
 import { webview } from '@kit.ArkWeb';
 import { textToSpeech } from '@kit.CoreSpeechKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { NativeStore } from '../common/NativeStore';
 
 /**
  * 原生朗读引擎（CoreSpeechKit）。
- * 游戏 index.html 里的 say() 只要检测到 window.HanziNative 就会走这里的 speak()。
+ * 游戏 game.js 里的 say() 只要检测到 window.HanziNative 就会走这里的 speak()。
  */
 class NativeTTS {
   private static engine: textToSpeech.TextToSpeechEngine | null = null;
@@ -105,36 +106,61 @@ class HanziNativeBridge {
   stop(): void {
     NativeTTS.stop();
   }
+
+  /** 学习进度（hzk_stats 的 JSON 字符串，空串表示无数据） */
+  getProgress(): string {
+    return NativeStore.get('progress');
+  }
+
+  setProgress(json: string): void {
+    NativeStore.set('progress', json);
+  }
+
+  /** 家长设置（hzk_settings 的 JSON 字符串，空串表示无数据） */
+  getSettings(): string {
+    return NativeStore.get('settings');
+  }
+
+  setSettings(json: string): void {
+    NativeStore.set('settings', json);
+  }
 }
 
 @Entry
 @Component
 struct Index {
   controller: webview.WebviewController = new webview.WebviewController();
+  // 等 NativeStore 就绪后再加载网页：页面启动时的同步读取才能拿到缓存数据
+  @State webReady: boolean = false;
 
   aboutToAppear(): void {
     NativeTTS.init();
+    NativeStore.onReady(() => {
+      this.webReady = true;
+    });
   }
 
   build() {
     Column() {
-      Web({
-        src: $rawfile('index.html'),
-        controller: this.controller
-      })
-        .javaScriptProxy({
-          object: new HanziNativeBridge(),
-          name: 'HanziNative',
-          methodList: ['speak', 'stop'],
+      if (this.webReady) {
+        Web({
+          src: $rawfile('index.html'),
           controller: this.controller
         })
-        .domStorageAccess(true)   // 游戏进度存在 localStorage，必须开
-        .javaScriptAccess(true)
-        .fileAccess(true)
-        .zoomAccess(false)
-        .multiWindowAccess(false)
-        .width('100%')
-        .height('100%')
+          .javaScriptProxy({
+            object: new HanziNativeBridge(),
+            name: 'HanziNative',
+            methodList: ['speak', 'stop', 'getProgress', 'setProgress', 'getSettings', 'setSettings'],
+            controller: this.controller
+          })
+          .domStorageAccess(true)   // 轻微 UI 状态（hzk_last）仍存 localStorage
+          .javaScriptAccess(true)
+          .fileAccess(true)
+          .zoomAccess(false)
+          .multiWindowAccess(false)
+          .width('100%')
+          .height('100%')
+      }
     }
     .width('100%')
     .height('100%')
