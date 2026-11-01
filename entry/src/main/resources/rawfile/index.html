@@ -221,6 +221,8 @@ body {
   <header class="topbar">
     <button class="icon-btn" id="quizHome" aria-label="回家">🏠</button>
     <div class="mascot" id="mascot">🐼</div>
+    <button class="icon-btn" id="btnQuizHints" aria-label="显示图片提示" title="看图提示开/关">🖼️</button>
+    <button class="icon-btn" id="btnSkip" aria-label="下一题" title="下一题">⏭️</button>
     <div class="star-count" id="starCount">⭐ 0</div>
   </header>
   <div class="bubble-row">
@@ -706,6 +708,7 @@ function startQuiz(id) {
   };
   $('dots').innerHTML = quiz.qs.map(() => '<span class="dot"></span>').join('');
   $('starCount').textContent = '⭐ 0';
+  updateQuizHintsBtn();
   showScreen('quiz');
   ask();
 }
@@ -716,7 +719,12 @@ function ask() {
   quiz.locked = false;
   setBubble('听一听，找出来 👇', '');
   $('mascot').textContent = '🐼';
+  renderOptions(q);
+  markDot();
+  setTimeout(() => sayPrompt(q), 250);
+}
 
+function renderOptions(q) {
   let cand = shuffle(poolOf(quiz.id).filter(ch => ch.c !== q.target.c));
   if (cand.length < q.opts - 1) {   // 字组太小时从全部汉字里补足干扰项
     cand = cand.concat(shuffle(ALL_CHARS.filter(ch => ch.c !== q.target.c && !cand.some(d => d.c === ch.c))));
@@ -727,17 +735,24 @@ function ask() {
   box.innerHTML = '';
   opts.forEach((o, idx) => {
     const b = document.createElement('button');
-    b.className = 'opt' + (settings.hints ? ' with-emoji' : '');
+    b.className = 'opt';
     b.style.borderColor = OPT_COLORS[idx % OPT_COLORS.length];
     b.dataset.c = o.c;
+    // 图片 span 始终渲染，由 applyHints() 只切显隐：切换时汉字、顺序、答题状态都不变
     b.innerHTML =
-      (settings.hints ? `<span class="opt-emoji${o.e.length > 2 ? ' small' : ''}">${o.e}</span>` : '') +
+      `<span class="opt-emoji${o.e.length > 2 ? ' small' : ''}">${o.e}</span>` +
       `<span class="opt-char kai">${o.c}</span>`;
     box.appendChild(b);
   });
+  applyHints();
+}
 
-  markDot();
-  setTimeout(() => sayPrompt(q), 250);
+function applyHints() {
+  [...$('options').children].forEach(b => {
+    b.classList.toggle('with-emoji', settings.hints);
+    const emoji = b.querySelector('.opt-emoji');
+    if (emoji) emoji.style.display = settings.hints ? '' : 'none';
+  });
 }
 
 function sayPrompt(q) {
@@ -757,6 +772,11 @@ function sayPrompt(q) {
 
 function setBubble(t, cls) { const el = $('bubbleText'); el.textContent = t; el.className = 'bubble ' + cls; }
 function markDot() { [...$('dots').children].forEach((d, i) => d.classList.toggle('cur', i === quiz.i)); }
+function updateQuizHintsBtn() {
+  const btn = $('btnQuizHints');
+  btn.textContent = settings.hints ? '🙈' : '🖼️';
+  btn.setAttribute('aria-label', settings.hints ? '隐藏图片提示' : '显示图片提示');
+}
 
 function answer(b) {
   const q = quiz.qs[quiz.i];
@@ -919,6 +939,21 @@ function bindEvents() {
     if (!quiz || !quiz.qs[quiz.i]) return;
     SFX.tap();
     sayPrompt(quiz.qs[quiz.i]);
+  });
+
+  // 找一找界面内切换「看图提示」：只切换图片显隐，不重建选项、不打断答题
+  $('btnQuizHints').addEventListener('click', () => {
+    settings.hints = !settings.hints;
+    saveSettings();
+    SFX.tap();
+    updateQuizHintsBtn();
+    applyHints();
+  });
+
+  $('btnSkip').addEventListener('click', () => {
+    if (!quiz || quiz.locked) return;
+    SFX.tap();
+    nextQ();
   });
 
   $('btnParent').addEventListener('click', () => { renderParent(); $('parentModal').classList.remove('hidden'); });
