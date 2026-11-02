@@ -32,7 +32,7 @@ body {
 .subtitle { text-align:center; color:#a58d6f; font-size:clamp(14px,3.6vw,18px); margin:0 0 10px; }
 
 /* ===== 首页：玩法 ===== */
-.modes { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.modes { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
 .mode-card { position:relative; border:4px solid transparent; border-radius:24px; background:#fff;
              padding:12px 8px 12px; font-family:inherit; font-size:clamp(20px,5.4vw,27px); color:#5b4632;
              line-height:1.35; box-shadow:0 6px 0 #eadfd2; cursor:pointer;
@@ -140,6 +140,41 @@ body {
 #confettiLayer { position:fixed; inset:0; pointer-events:none; z-index:900; overflow:hidden; }
 .confetti { position:absolute; top:-60px; animation:confFall linear forwards; }
 @keyframes confFall { to { transform:translateY(115vh) rotate(340deg); } }
+
+/* ===== 读一读（跟读录音评分）===== */
+.read-stage { flex:1; display:flex; align-items:center; justify-content:center;
+               min-height:0; padding:4px 0; }
+.read-card { width:100%; max-width:520px; max-height:100%; border-radius:32px;
+             background:rgba(255,255,255,.95); box-shadow:0 10px 0 rgba(0,0,0,.07),0 18px 40px rgba(0,0,0,.10);
+             display:flex; flex-direction:column; align-items:center; justify-content:center;
+             gap:clamp(2px,1.2vh,12px); padding:10px; overflow:hidden; }
+.read-card.no-icon .fc-emoji { display:none; }
+.read-actions { display:flex; justify-content:center; padding:10px 0 4px; }
+.mic-btn { border:0; border-radius:999px; background:linear-gradient(#ff6f91,#e84a6f); color:#fff;
+           font-family:inherit; font-size:clamp(24px,6.4vw,32px); padding:12px 46px;
+           box-shadow:0 6px 0 #c22e52; cursor:pointer; display:flex; flex-direction:column;
+           align-items:center; line-height:1.2; }
+.mic-btn small { font-size:clamp(13px,3.4vw,16px); }
+.mic-btn:active { transform:translateY(3px); box-shadow:0 3px 0 #c22e52; }
+.mic-btn.rec { background:linear-gradient(#ff5c8a,#d92b5e); animation:micPulse 1s infinite; }
+@keyframes micPulse { 0%,100% { transform:scale(1); box-shadow:0 6px 0 #c22e52,0 0 0 0 rgba(255,92,138,.55); }
+                      50% { transform:scale(1.06); box-shadow:0 6px 0 #c22e52,0 0 0 20px rgba(255,92,138,0); } }
+.mic-btn.busy { opacity:.6; animation:none; }
+.mic-btn.off { opacity:.5; filter:grayscale(.4); }
+.read-feedback { position:absolute; inset:0; z-index:30; display:flex; align-items:center;
+                 justify-content:center; background:rgba(60,45,25,.35); padding:18px;
+                 animation:panelIn .3s ease; }
+.read-feedback.hidden { display:none; }
+.rf-card { background:#fff; border-radius:30px; max-width:420px; width:100%; text-align:center;
+           display:flex; flex-direction:column; align-items:center; gap:6px; padding:22px 20px;
+           box-shadow:0 16px 44px rgba(0,0,0,.22); }
+.rf-head { font-size:clamp(16px,4.4vw,20px); color:#8a7358; }
+.rf-emoji { font-size:clamp(44px,12vw,72px); line-height:1.15; }
+.rf-emoji.small { font-size:clamp(26px,7vw,44px); letter-spacing:-4px; }
+.rf-char { font-size:clamp(64px,20vw,110px); line-height:1.05; color:#3f3428; }
+.rf-pinyin { font-size:clamp(20px,5.4vw,28px); color:#ff8a00; letter-spacing:.12em; }
+.rf-word { font-size:clamp(18px,5vw,24px); color:#a58d6f; }
+.rf-btns { display:flex; gap:12px; margin-top:12px; flex-wrap:wrap; justify-content:center; }
 
 /* ===== 家长中心 ===== */
 .modal { position:fixed; inset:0; background:rgba(60,45,25,.45); z-index:1000;

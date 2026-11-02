@@ -24,6 +24,7 @@
   <div class="modes">
     <button class="mode-card" data-mode="learn"><span class="big">📖</span>认一认<small>看字卡 · 听发音</small></button>
     <button class="mode-card" data-mode="quiz"><span class="big">🎯</span>找一找<small>听声音 · 找汉字</small></button>
+    <button class="mode-card" data-mode="read"><span class="big">🎤</span>读一读<small>跟着读 · 录音评分</small></button>
   </div>
   <div class="group-scroll"><div class="group-grid" id="groupGrid"></div></div>
 </section>
@@ -64,6 +65,45 @@
   </div>
   <div class="dots" id="dots"></div>
   <div class="options" id="options"></div>
+</section>
+
+<!-- 读一读 -->
+<section class="screen" id="screen-read">
+  <header class="topbar">
+    <button class="icon-btn" id="readHome" aria-label="回家">🏠</button>
+    <div class="top-title" id="readTitle">🎤 读一读</div>
+    <button class="icon-btn" id="btnReadIcon" aria-label="显示图片提示" title="看图/藏图">🖼️</button>
+    <button class="icon-btn" id="btnReadSkip" aria-label="下一题" title="下一题">⏭️</button>
+    <div class="counter" id="readCounter">1 / 10</div>
+  </header>
+  <div class="read-stage">
+    <div class="read-card" id="readCard">
+      <div class="fc-emoji" id="readEmoji"></div>
+      <div class="fc-char kai" id="readChar"></div>
+      <div class="fc-pinyin" id="readPinyin"></div>
+      <div class="fc-word" id="readWord"></div>
+      <div class="fc-tap-hint">🎤 大声读出这个字吧</div>
+    </div>
+  </div>
+  <div class="bubble-row">
+    <div class="bubble" id="readBubble">这个字怎么读？大声读出来吧</div>
+  </div>
+  <div class="read-actions">
+    <button class="mic-btn" id="btnMic">🎤<small>点我录音</small></button>
+  </div>
+  <div class="read-feedback hidden" id="readFeedback">
+    <div class="rf-card">
+      <div class="rf-head" id="rfTitle">这是它的读音 🔈</div>
+      <div class="rf-emoji" id="rfEmoji"></div>
+      <div class="rf-char kai" id="rfChar"></div>
+      <div class="rf-pinyin" id="rfPinyin"></div>
+      <div class="rf-word kai" id="rfWord"></div>
+      <div class="rf-btns">
+        <button class="big-btn primary" id="btnRetry">🔁 再读一次</button>
+        <button class="big-btn" id="btnReadNext">⏭️ 下一题</button>
+      </div>
+    </div>
+  </div>
 </section>
 
 <!-- 结算 -->

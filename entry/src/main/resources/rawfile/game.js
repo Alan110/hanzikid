@@ -54,7 +54,7 @@ if (HAS_NATIVE) {
   migrate('hzk_stats', () => window.HanziNative.getProgress(), v => window.HanziNative.setProgress(v));
   migrate('hzk_settings', () => window.HanziNative.getSettings(), v => window.HanziNative.setSettings(v));
 }
-let settings = Object.assign({ rate:'normal', hints:true, len:10, learnIcon:false }, store.get('hzk_settings', {}));
+let settings = Object.assign({ rate:'normal', hints:true, len:10, learnIcon:false, readIcon:false }, store.get('hzk_settings', {}));
 let stats = store.get('hzk_stats', {});           // { 字: { s:出现, f:一次答对, w:答错 } }
 const saveSettings = () => store.set('hzk_settings', settings);
 const saveStats = () => store.set('hzk_stats', stats);
@@ -177,7 +177,7 @@ function shuffle(a) {
 const poolOf = id => (id === 'all' ? ALL_CHARS : (GROUPS.find(g => g.id === id) || GROUPS[0]).chars);
 const groupName = id => (id === 'all' ? '全部汉字' : GROUPS.find(g => g.id === id).name);
 function bump(el) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
-const SCREENS = { home:'screen-home', learn:'screen-learn', quiz:'screen-quiz', end:'screen-end' };
+const SCREENS = { home:'screen-home', learn:'screen-learn', quiz:'screen-quiz', read:'screen-read', end:'screen-end' };
 function showScreen(k) {
   Object.values(SCREENS).forEach(id => $(id).classList.remove('active'));
   $(SCREENS[k]).classList.add('active');
@@ -185,6 +185,7 @@ function showScreen(k) {
 
 /* ================= 首页 ================= */
 const ui = { mode: (store.get('hzk_last', {}) || {}).mode || 'learn' };
+let lastRun = null;   // 结算页「再来一次」回到刚才的玩法
 
 function renderHome() {
   document.querySelectorAll('.mode-card').forEach(b => b.classList.toggle('selected', b.dataset.mode === ui.mode));
@@ -200,7 +201,9 @@ function renderHome() {
     b.addEventListener('click', () => {
       SFX.tap();
       store.set('hzk_last', { mode: ui.mode, group: id });
-      ui.mode === 'learn' ? startLearn(id) : startQuiz(id);
+      if (ui.mode === 'learn') startLearn(id);
+      else if (ui.mode === 'read') startRead(id);
+      else startQuiz(id);
     });
     grid.appendChild(b);
   };
@@ -210,6 +213,8 @@ function renderHome() {
 
 function goHome() {
   if ('speechSynthesis' in window) { try { speechSynthesis.cancel(); } catch (e) {} }
+  voiceCancelAll();
+  clearReadGuard();
   renderHome();
   showScreen('home');
 }
@@ -290,6 +295,7 @@ function startQuiz(id) {
     id,     qs: scored.slice(0, n).map((s, i) => ({ target: s.ch, opts: i < 2 ? 2 : 4 })),  // 前 2 题二选热身，其余四选
     i: 0, gold: 0, silver: 0, attempts: 0, locked: false,
   };
+  lastRun = { mode: 'quiz', id };
   $('dots').innerHTML = quiz.qs.map(() => '<span class="dot"></span>').join('');
   $('starCount').textContent = '⭐ 0';
   updateQuizHintsBtn();
@@ -435,6 +441,295 @@ function confetti(n = 40) {
   }
 }
 
+/* ================= 读一读（出题 → 跟读录音 → 回放 → 端侧评测） ================= */
+// 原生语音桥：录音/回放/识别原语都走 HanziNative，状态机与判定在这里。
+// 浏览器直接打开时桥不存在，整体走降级路径（纯听读跟读，不录音不评分）。
+const VOICE = !!(window.HanziNative && typeof window.HanziNative.voiceStartRecord === 'function'
+  && typeof window.HanziNative.voiceRecognize === 'function');
+const READ_LEADS = [
+  '这个字怎么读？大声读出来吧',
+  '看一看，它念什么？大声说',
+  '轮到你读啦，大声读出来',
+  '猜一猜，这个字怎么读？说给我听吧',
+];
+// 声调宽容：拼音去声调建同音索引，孩子说 mǎ 识别成「马」也算读对
+const TONE_MAP = { 'ā':'a','á':'a','ǎ':'a','à':'a','ē':'e','é':'e','ě':'e','è':'e','ī':'i','í':'i','ǐ':'i','ì':'i',
+                   'ō':'o','ó':'o','ǒ':'o','ò':'o','ū':'u','ú':'u','ǔ':'u','ù':'u','ǖ':'v','ǘ':'v','ǚ':'v','ǜ':'v','ü':'v' };
+const stripTone = p => (p || '').toLowerCase().replace(/[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]/g, m => TONE_MAP[m]);
+const PIN_INDEX = {};
+ALL_CHARS.forEach(ch => {
+  const k = stripTone(ch.p);
+  if (!k) return;
+  (PIN_INDEX[k] = PIN_INDEX[k] || []).push(ch.c);
+});
+// 判定：识别文本含目标字 / 目标词语 / 字库同音字（去声调）任一即读对
+function judgeRead(text, target) {
+  const norm = String(text || '').replace(/[^一-龥]/g, '');
+  if (!norm) return 'empty';
+  if (norm.includes(target.c)) return 'ok';
+  if (target.w && norm.includes(target.w)) return 'ok';
+  const homo = PIN_INDEX[stripTone(target.p)] || [];
+  for (let i = 0; i < homo.length; i++) if (norm.includes(homo[i])) return 'ok';
+  return 'no';
+}
+
+let read = null;
+let readGuardTimer = null;
+function setReadGuard(ms, fn) { clearReadGuard(); readGuardTimer = setTimeout(fn, ms); }
+function clearReadGuard() { if (readGuardTimer) { clearTimeout(readGuardTimer); readGuardTimer = null; } }
+function voiceCancelAll() {
+  if (VOICE && window.HanziNative.voiceCancel) { try { window.HanziNative.voiceCancel(); } catch (e) {} }
+}
+
+function setReadBubble(t, cls) { const el = $('readBubble'); el.textContent = t; el.className = 'bubble ' + (cls || ''); }
+
+function setMicBtn(state) {
+  const b = $('btnMic');
+  b.className = 'mic-btn' + (state === 'rec' ? ' rec' : state === 'busy' ? ' busy' : state === 'off' ? ' off' : '');
+  b.innerHTML = state === 'rec' ? '⏹️<small>停止</small>'
+    : state === 'busy' ? '⏳<small>评分中</small>'
+    : state === 'off' ? '🎤<small>暂不可用</small>'
+    : '🎤<small>点我录音</small>';
+  b.disabled = state === 'busy' || state === 'off';
+}
+
+function updateReadIcon() {
+  // 认字优先：读一读默认只看汉字，图片提示按需点开
+  const showIcon = !!settings.readIcon;
+  $('readCard').classList.toggle('no-icon', !showIcon);
+  const btn = $('btnReadIcon');
+  btn.textContent = showIcon ? '🙈' : '🖼️';
+  btn.setAttribute('aria-label', showIcon ? '隐藏图片提示' : '显示图片提示');
+}
+
+function sayReadDemo(it, withLead) {
+  const parts = withLead ? [{ t: '跟我读：', r: rate() }] : [];
+  parts.push({ t: it.c, r: rate() * 0.85 });
+  if (it.w) parts.push({ t: it.w, r: rate() * 0.95 });
+  parts.push({ t: it.c, r: rate() * 0.85 });
+  say(parts);
+}
+
+function startRead(id) {
+  const pool = poolOf(id);
+  const n = Math.min(settings.len, pool.length);
+  // 出题优先级复用找一找逻辑：优先没掌握的字，掺随机防雷同
+  const scored = pool.map(ch => {
+    const st = stats[ch.c] || { f:0, w:0 };
+    return { ch, k: (st.f || 0) - (st.w || 0) + ((st.f || 0) >= 3 ? 2 : 0) + Math.random() * 2 };
+  });
+  scored.sort((a, b) => a.key - b.key);
+  read = {
+    id, qs: scored.slice(0, n).map(s => ({ target: s.ch })),
+    i: 0, gold: 0, silver: 0, tries: 0, advancing: false,
+    state: 'idle', degraded: !VOICE,
+    playbackDone: false, asrDone: false, asrText: null, asrFailed: false,
+  };
+  lastRun = { mode: 'read', id };
+  $('readTitle').textContent = '🎤 ' + groupName(id);
+  showScreen('read');
+  askRead();
+}
+
+function askRead() {
+  const q = read.qs[read.i];
+  read.tries = 0;
+  read.advancing = false;
+  read.state = 'idle';
+  read.playbackDone = false;
+  read.asrDone = false;
+  read.asrText = null;
+  read.asrFailed = false;
+  clearReadGuard();
+  $('readCounter').textContent = (read.i + 1) + ' / ' + read.qs.length;
+  updateReadIcon();
+  $('readEmoji').textContent = q.target.e;
+  $('readEmoji').classList.toggle('small', q.target.e.length > 2);
+  $('readChar').textContent = q.target.c;
+  $('readPinyin').textContent = q.target.p;
+  $('readWord').textContent = q.target.w ? '词语 · ' + q.target.w : '';
+  $('readFeedback').classList.add('hidden');
+  setMicBtn(VOICE ? 'idle' : 'off');
+  if (read.degraded) {
+    // 降级跟读模式：出题就示范读音（无法评分，纯跟读练习）
+    setReadBubble(VOICE ? '跟读模式：先听一听，再跟着读 👇' : '这台设备暂不支持录音，跟着读一遍吧 👆', 'hint');
+    sayReadDemo(q.target, true);
+  } else {
+    // 已确认决策：先让孩子自己读，引导语不含示范音
+    const lead = READ_LEADS[Math.floor(Math.random() * READ_LEADS.length)];
+    setReadBubble(lead, '');
+    say([{ t: lead, r: rate() }]);
+  }
+}
+
+function resetReadIdle(msg) {
+  read.state = 'idle';
+  setMicBtn(VOICE ? 'idle' : 'off');
+  if (msg) { setReadBubble(msg, 'hint'); bump($('btnMic')); }
+}
+
+function onRecStopped(ms) {
+  if (!read || (read.state !== 'recording' && read.state !== 'waitRec')) return;
+  clearReadGuard();
+  if (ms < 500) {   // 太短多半是误触
+    resetReadIdle('按一下就开始录啦，多读一会儿哦 👆');
+    return;
+  }
+  read.state = 'processing';
+  setMicBtn('busy');
+  setReadBubble('来听听你刚才读的 🔊', '');
+  read.playbackDone = false;
+  read.asrDone = false;
+  read.asrText = null;
+  read.asrFailed = false;
+  window.HanziNative.voicePlayRecording();
+  if (!read.degraded) {
+    // 回放与识别并行（writeAudio 是实时节奏，≈ 录音时长），体感零等待
+    window.HanziNative.voiceRecognize(read.qs[read.i].target.w || '');
+    setReadGuard(15000, () => {
+      if (read && read.state === 'processing' && !read.asrDone) { read.asrFailed = true; tryResolveRead(); }
+    });
+  } else {
+    // 跟读模式不评分：回放完就示范，兜底防 playbackDone 丢失
+    setReadGuard(ms + 5000, () => {
+      if (read && read.state === 'processing' && !read.playbackDone) { read.playbackDone = true; tryResolveRead(); }
+    });
+  }
+}
+
+function tryResolveRead() {
+  if (!read || read.state !== 'processing') return;
+  if (!read.playbackDone) return;   // 等回放播完再反馈，避免声音打架
+  if (read.degraded || read.asrFailed) {
+    if (!read.degraded) {
+      // 首次发现设备无端侧 ASR（模拟器/老系统）：本局转跟读模式，不卡流程
+      read.degraded = true;
+      setReadBubble('这台设备暂不支持自动评分，跟读一遍吧 💪', 'hint');
+    }
+    finishDegradedRead();
+    return;
+  }
+  if (!read.asrDone) return;
+  const verdict = judgeRead(read.asrText, read.qs[read.i].target);
+  if (verdict === 'ok') readCorrect();
+  else if (verdict === 'empty') {
+    resetReadIdle('没听到你的声音哦，大点声再试一次 💪');
+    say([{ t: '没听到你的声音哦，大点声再试一次', r: rate() }]);
+  } else readWrong();
+}
+
+function readCorrect() {
+  const q = read.qs[read.i];
+  read.state = 'done';
+  clearReadGuard();
+  setMicBtn('busy');
+  const first = read.tries === 0;
+  const st = statOf(q.target.c);
+  st.s++; first ? st.f++ : st.w++;
+  saveStats();
+  first ? read.gold++ : read.silver++;
+  const cheer = CHEERS[Math.floor(Math.random() * CHEERS.length)];
+  setReadBubble(cheer.b, 'good');
+  SFX.cheer();
+  if (first) confetti(10);
+  say([{ t: cheer.s },
+       { t: '这是「' + q.target.c + '」', r: rate() * 0.95 },
+       { t: q.target.c, r: rate() * 0.85 }]);
+  setReadGuard(2000, nextReadQ);
+}
+
+function showReadFeedback(target) {
+  $('rfEmoji').textContent = target.e;
+  $('rfEmoji').classList.toggle('small', target.e.length > 2);
+  $('rfChar').textContent = target.c;
+  $('rfPinyin').textContent = target.p;
+  $('rfWord').textContent = target.w ? target.w : '';
+  $('readFeedback').classList.remove('hidden');
+  // TTS 示范标准音："这是妈，妈妈的妈"
+  const parts = [{ t: '这是', r: rate() }, { t: target.c, r: rate() * 0.8 }];
+  if (target.w) parts.push({ t: target.w + '的' + target.c, r: rate() * 0.9 });
+  else parts.push({ t: target.c, r: rate() * 0.75 });
+  say(parts);
+}
+
+function readWrong() {
+  read.state = 'feedback';
+  setMicBtn('off');
+  SFX.wrong();
+  setReadBubble('读得不太像哦，听一听标准读音吧 👇', 'bad');
+  showReadFeedback(read.qs[read.i].target);
+}
+
+function finishDegradedRead() {
+  // 跟读模式收尾：不判对错，示范读音 + 再读/下一题
+  read.state = 'feedback';
+  setMicBtn('off');
+  showReadFeedback(read.qs[read.i].target);
+}
+
+function nextReadQ() {
+  if (!read || read.advancing) return;
+  read.advancing = true;
+  clearReadGuard();
+  voiceCancelAll();
+  read.i++;
+  read.i >= read.qs.length ? endRead() : askRead();
+}
+
+function endRead() {
+  showScreen('end');
+  const total = read.qs.length;
+  const end = (read.gold === total && total > 0 ? END_PERFECT : END_GOOD)[Math.floor(Math.random() * 3)];
+  $('endEmoji').textContent = end.e;
+  $('endTitle').textContent = end.t;
+  $('endStars').textContent = '⭐'.repeat(read.gold) + (read.silver ? ' 🌟×' + read.silver : '');
+  $('endMsg').textContent = `一次就读对 ${read.gold} 个` + (read.silver ? `，帮助后读对 ${read.silver} 个` : '');
+  confetti();
+  SFX.win();
+  say([{ t: end.s }, { t: `你读对了${read.gold}个字！` }]);
+}
+
+// 原生语音事件入口（Index.ets 经 runJavaScript 回推）
+window.__onVoiceEvent = (type, data) => {
+  if (!read) return;
+  const d = data || {};
+  if (type === 'mic') {
+    if (!d.granted) {
+      read.state = 'idle';
+      setMicBtn('idle');
+      setReadBubble('需要麦克风才能录你的声音哦 😢', 'bad');
+      setTimeout(() => setReadBubble('请到「设置 → 隐私 → 权限 → 麦克风」打开它，再回来读吧', 'hint'), 1800);
+    }
+  } else if (type === 'recStarted') {
+    if (read.state === 'waitRec') {
+      clearReadGuard();
+      read.state = 'recording';
+      setMicBtn('rec');
+      setReadBubble('正在听你读…… 🎤', '');
+      // 兜底：原生 6 秒自动停，9 秒还没收到 recStopped 必定异常，强制复位防按钮一直闪
+      setReadGuard(9000, () => {
+        if (read && read.state === 'recording') {
+          window.HanziNative.voiceStopRecord();
+          resetReadIdle('好像卡住了，再点一次试试 🎤');
+        }
+      });
+    }
+  } else if (type === 'recStopped') {
+    onRecStopped(d.ms || 0);
+  } else if (type === 'playbackDone') {
+    read.playbackDone = true;
+    tryResolveRead();
+  } else if (type === 'asrResult') {
+    read.asrDone = true;
+    read.asrText = d.text || '';
+    tryResolveRead();
+  } else if (type === 'asrError') {
+    read.asrDone = true;
+    read.asrFailed = true;
+    tryResolveRead();
+  }
+};
+
 /* ================= 家长中心 ================= */
 function segSet(id, val) {
   document.querySelectorAll('#' + id + ' .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.v === String(val)));
@@ -491,13 +786,17 @@ function bindEvents() {
     ui.mode = b.dataset.mode;
     SFX.tap();
     renderHome();
-    say(ui.mode === 'learn' ? '认一认' : '找一找');
+    say(ui.mode === 'learn' ? '认一认' : ui.mode === 'read' ? '读一读' : '找一找');
   }));
 
   $('learnHome').addEventListener('click', goHome);
   $('quizHome').addEventListener('click', goHome);
+  $('readHome').addEventListener('click', goHome);
   $('btnHomeEnd').addEventListener('click', goHome);
-  $('btnAgain').addEventListener('click', () => startQuiz(quiz.id));
+  $('btnAgain').addEventListener('click', () => {
+    if (!lastRun) return;
+    lastRun.mode === 'read' ? startRead(lastRun.id) : startQuiz(lastRun.id);
+  });
 
   $('learnPrev').addEventListener('click', () => { SFX.tap(); learn.i = (learn.i - 1 + learn.list.length) % learn.list.length; renderLearn(); });
   $('learnNext').addEventListener('click', () => { SFX.tap(); learn.i = (learn.i + 1) % learn.list.length; renderLearn(); });
@@ -533,6 +832,62 @@ function bindEvents() {
     updateQuizHintsBtn();
     applyHints();
   });
+
+  /* ---- 读一读 ---- */
+  $('btnMic').addEventListener('click', () => {
+    if (!read || !VOICE) return;
+    SFX.tap();
+    if (read.state === 'idle') {
+      read.state = 'waitRec';
+      window.HanziNative.voiceStartRecord();
+      // 保险：3 秒还没 recStarted 就复位（原生侧失败也会回推 recStopped{ms:0}）
+      setReadGuard(3000, () => {
+        if (read && read.state === 'waitRec') resetReadIdle('没启动成功，再点一次试试 🎤');
+      });
+    } else if (read.state === 'recording') {
+      window.HanziNative.voiceStopRecord();
+    }
+  });
+
+  $('btnReadIcon').addEventListener('click', () => {
+    settings.readIcon = !settings.readIcon;
+    saveSettings();
+    SFX.tap();
+    updateReadIcon();
+    bump($('readCard'));
+  });
+
+  // 出题后点字卡：只有跟读模式 / 纠正阶段才重播示范（正常流程先让孩子自己读，不剧透读音）
+  $('readCard').addEventListener('click', () => {
+    if (!read) return;
+    if (read.degraded || read.state === 'feedback') {
+      SFX.tap();
+      bump($('readCard'));
+      sayReadDemo(read.qs[read.i].target, false);
+    }
+  });
+
+  $('btnRetry').addEventListener('click', () => {
+    if (!read) return;
+    SFX.tap();
+    voiceCancelAll();
+    clearReadGuard();
+    read.tries++;
+    read.state = 'idle';
+    $('readFeedback').classList.add('hidden');
+    setMicBtn(VOICE ? 'idle' : 'off');
+    if (read.degraded) {
+      setReadBubble(VOICE ? '再跟着读一遍吧 👇' : '这台设备暂不支持录音，跟着读一遍吧 👆', 'hint');
+      sayReadDemo(read.qs[read.i].target, true);
+    } else {
+      const lead = '再试一次，大声读出来吧';
+      setReadBubble(lead, '');
+      say([{ t: lead, r: rate() }]);
+    }
+  });
+
+  $('btnReadNext').addEventListener('click', () => { SFX.tap(); nextReadQ(); });
+  $('btnReadSkip').addEventListener('click', () => { if (read) { SFX.tap(); nextReadQ(); } });
 
   $('btnSkip').addEventListener('click', () => {
     if (!quiz || quiz.locked) return;
@@ -582,7 +937,11 @@ function bindEvents() {
 
   document.addEventListener('contextmenu', e => e.preventDefault());
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && 'speechSynthesis' in window) { try { speechSynthesis.cancel(); } catch (e) {} }
+    if (document.hidden) {
+      if ('speechSynthesis' in window) { try { speechSynthesis.cancel(); } catch (e) {} }
+      voiceCancelAll();   // 切后台立即停录音/回放/识别，释放音频流
+      clearReadGuard();
+    }
   });
 }
 
@@ -591,7 +950,8 @@ Speech.init();
 bindEvents();
 renderHome();
 
-// 开发/测试入口：index.html#learn 或 #quiz 直接进入动物组
+// 开发/测试入口：index.html#learn / #quiz / #read 直接进入动物组
 if (location.hash === '#learn') startLearn('animals');
 else if (location.hash === '#quiz') startQuiz('animals');
+else if (location.hash === '#read') startRead('animals');
 })();
