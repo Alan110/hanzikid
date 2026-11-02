@@ -13,3 +13,4 @@
 *.hap
 *.bin
 /BuildProfile.ets
+/.deveco

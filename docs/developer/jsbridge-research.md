@@ -19,6 +19,29 @@
 | 独立第三方 JSBridge 库 | Gitee / OpenHarmony TPC 社区封装 | 无事实标准，采用度低 | ❌ 不引入 |
 | 自带 bridge 的跨端框架 | uni-app、Taro、RN OpenHarmony | 成熟但为整体框架 | ❌ 已有自研 H5，重量级改动，明确排除 |
 
+### 2.1 包管理生态实测检索（2026-11-02 补充）
+
+对 ohpm / npm 包管理生态做了实际检索验证，结论：**ohpm 仓内没有可用的 JSBridge 三方库**。
+
+**检索方式与结果：**
+
+1. **ohpm 官方仓（ohpm.openharmony.cn，ohpm CLI v26.0.0.630）**：
+   - `ohpm info` 逐一查询候选包名 `jsbridge`、`hybrid-jsbridge`、`@dead_fish/jsbridge`、`@lcy453/miniapp-runtime-harmony-web-sdk` 等 → **全部 404，均未发布在 ohpm 仓**
+   - ohpm CLI 无 search 子命令；官网搜索 API 有防重放签名校验（错误码 204020），无法批量模糊检索
+2. **npm / npmmirror 镜像**：检索 `jsbridge harmonyos`、`harmonyos webview bridge` 共命中 6 个相关包，全部为**个人开发者项目、下载量极低**：
+
+| 包名 | 说明 | 下载量 | 是否在 ohpm |
+|---|---|---|---|
+| `@dead_fish/jsbridge` | Android/iOS/HarmonyOS 三端 jsbridge，npm 分发 | 221 | ❌（仅 npm） |
+| `ota-native-bridge` / `open_native_bridge` | OTA 壳应用跨平台 Bridge TS SDK | 112 / 21 | ❌（仅 npm） |
+| `@alvin917/jsbridge-plugin` 等 | jsbridge 编译器插件 | 15 | ❌ |
+| `@lcy453/miniapp-runtime-harmony-web-sdk` | 自研小程序运行时的 H5 侧 SDK | 0 | ❌ |
+| `@xnhz-atomic/atomic-harmony-web-sdk` | WebView bridge + AI 翻译 SDK（UNLICENSED） | 0 | ❌ |
+
+3. **Gitee / 搜索引擎**：Gitee API 搜 "jsbridge harmonyos" 仓库为空；搜索引擎未发现任何有采用度的 ohpm JSBridge 三方库。
+
+**解读：** npm 上零星的鸿蒙 JSBridge SDK 有两个致命问题——一是均为个人项目、无社区采用（下载量最高仅 221）、无维护保障；二是**只发 npm 不发 ohpm**，意味着原生侧（HarmonyOS 工程）根本无法通过 `ohpm install` 引入，这类包最多只能作为 H5 侧 JS SDK 使用。包管理生态的实测结果进一步印证了"官方 API + 自研薄封装"的选型。
+
 ## 三、官方 ArkWeb 桥接 API 清单
 
 以下 API 即"官方 JSBridge"，按通信模型分为三类：
