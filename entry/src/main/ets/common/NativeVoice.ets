@@ -7,8 +7,9 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 const TAG: string = 'NativeVoice';
 const BYTES_PER_MS: number = 32;      // 16000Hz × 2字节 × 1声道 ÷ 1000
 const MAX_RECORD_MS: number = 6000;   // 录音上限 6 秒自动停
-const ASR_CHUNK: number = 640;        // writeAudio 仅接受 640/1280 字节分块
-const ASR_CHUNK_INTERVAL: number = 20; // 640B @16k 恰好 20ms
+const ASR_CHUNK: number = 1280;       // writeAudio 仅接受 640/1280 字节分块
+const ASR_CHUNK_INTERVAL: number = 40; // 1280B @16k 恰好 40ms
+const ASR_PAD_CHUNKS: number = 20;     // 结束前补 800ms 静音，帮引擎收尾出结果
 
 /**
  * 原生语音原语：录音 / 回放 / 端侧识别（读一读玩法）。
@@ -26,6 +27,8 @@ export class NativeVoice {
   private static recBytes: number = 0;
   private static recTimer: number = -1;
   private static recorded: Uint8Array = new Uint8Array(0);
+  // 采集增益：设备麦克风偏小声，回放与送识别前统一做软件放大（按峰值自适应，避免爆音）
+  private static pcmGain: number = 1;
 
   // 回放
   private static renderer: audio.AudioRenderer | null = null;
@@ -40,6 +43,7 @@ export class NativeVoice {
   private static asrSessionId: string = '';
   private static asrText: string = '';
   private static asrFeedPos: number = 0;
+  private static asrPadSent: number = 0;
   private static asrFeedTimer: number = -1;
   private static asrWatchTimer: number = -1;
   private static asrSeq: number = 0;
@@ -130,7 +134,7 @@ export class NativeVoice {
       encodingType: audio.AudioEncodingType.ENCODING_TYPE_RAW
     };
     const capturerInfo: audio.AudioCapturerInfo = {
-      source: audio.SourceType.SOURCE_TYPE_VOICE_RECOGNITION, // ASR 场景官方推荐源类型
+      source: audio.SourceType.SOURCE_TYPE_MIC, // 普通麦克风源：VOICE_RECOGNITION 在此机型上增益过低，ASR 听不清
       capturerFlags: 0
     };
     const options: audio.AudioCapturerOptions = {
@@ -196,8 +200,25 @@ export class NativeVoice {
     const chunkCount: number = NativeVoice.recChunks.length;
     NativeVoice.recChunks = [];
     const ms: number = Math.floor(NativeVoice.recBytes / BYTES_PER_MS);
-    hilog.info(0x0000, TAG, 'record stopped, %{public}d bytes (~%{public}dms), %{public}d chunks',
-      NativeVoice.recBytes, ms, chunkCount);
+    // 采集电平诊断：峰值过低说明麦克风增益/音量有问题，ASR 会听不清
+    let peak: number = 0;
+    const view: DataView = new DataView(merged.buffer, merged.byteOffset, merged.byteLength);
+    for (let i: number = 0; i + 1 < merged.length; i += 2) {
+      const s: number = view.getInt16(i, true);
+      const a: number = s < 0 ? -s : s;
+      if (a > peak) {
+        peak = a;
+      }
+    }
+    hilog.info(0x0000, TAG, 'record stopped, %{public}d bytes (~%{public}dms), %{public}d chunks, peak=%{public}d',
+      NativeVoice.recBytes, ms, chunkCount, peak);
+    // 峰值过低时自适应放大（目标峰值 12000，最多 6 倍）；回放和识别共用
+    let gain: number = 1;
+    if (peak > 0 && peak < 12000) {
+      gain = Math.round(Math.min(6, 12000 / peak) * 10) / 10;
+    }
+    NativeVoice.pcmGain = gain;
+    hilog.info(0x0000, TAG, 'pcm gain=%{public}s', gain.toString());
     NativeVoice.emit('recStopped', `{"ms":${ms}}`);
   }
 
@@ -245,6 +266,31 @@ export class NativeVoice {
     });
   }
 
+  // 按 pcmGain 复制一段 PCM 到目标缓冲（S16LE，越界削顶，不改变采样率）
+  private static applyGain(src: Uint8Array, srcOff: number, dst: Uint8Array, dstOff: number, len: number): void {
+    const samples: number = Math.floor(len / 2) * 2;
+    const gain: number = NativeVoice.pcmGain;
+    for (let i: number = 0; i < samples; i += 2) {
+      const lo: number = src[srcOff + i];
+      const hi: number = src[srcOff + i + 1];
+      let s: number = (hi << 8) | lo;
+      if (s >= 32768) {
+        s -= 65536;
+      }
+      if (gain !== 1) {
+        s = Math.round(s * gain);
+        if (s > 32767) {
+          s = 32767;
+        } else if (s < -32768) {
+          s = -32768;
+        }
+      }
+      const out: number = s & 0xffff;
+      dst[dstOff + i] = out & 0xff;
+      dst[dstOff + i + 1] = (out >> 8) & 0xff;
+    }
+  }
+
   private static fillPlayback(buffer: ArrayBuffer): audio.AudioDataCallbackResult {
     if (NativeVoice.renderer === null) {
       return audio.AudioDataCallbackResult.INVALID;
@@ -261,18 +307,14 @@ export class NativeVoice {
       }
       return audio.AudioDataCallbackResult.INVALID;
     }
-    if (remain >= view.length) {
-      view.set(pcm.subarray(pos, pos + view.length));
-      NativeVoice.playPos = pos + view.length;
-      return audio.AudioDataCallbackResult.VALID;
-    }
-    // 最后一帧：拼接静音填满缓冲，避免尾部杂音
-    view.set(pcm.subarray(pos, pcm.length));
-    for (let i: number = remain; i < view.length; i++) {
+    const len: number = Math.min(remain, view.length);
+    NativeVoice.applyGain(pcm, pos, view, 0, len);
+    // 不足一帧的部分补静音，避免尾部杂音
+    for (let i: number = len; i < view.length; i++) {
       view[i] = 0;
     }
-    NativeVoice.playPos = pcm.length;
-    if (!NativeVoice.playDrained) {
+    NativeVoice.playPos = pos + len;
+    if (remain <= view.length && !NativeVoice.playDrained) {
       NativeVoice.playDrained = true;
       NativeVoice.schedulePlayStop();
     }
@@ -402,8 +444,11 @@ export class NativeVoice {
     const recognizerOption: Record<string, Object> = { 'enablePartialResult': false };
     const extraParams: Record<string, Object> = {
       'recognitionMode': 1, // 写音频流模式
-      'vadBegin': 500,
-      'vadEnd': 800,
+      // 前端点放宽到 6 秒（录音上限）：孩子点完按钮常有停顿，500ms 会把开头静音误判成"无语音"直接结束
+      'vadBegin': 6000,
+      // 后端点放宽：孩子读一个字可能中途停顿，过小容易把后半截切掉
+      'vadEnd': 3000,
+      'maxAudioDuration': 60000,
       'recognizerOption': recognizerOption,
       'sessionGeneralLexicon': lexicon
     };
@@ -420,8 +465,9 @@ export class NativeVoice {
       NativeVoice.emit('asrError', `{"code":${e.code}}`);
       return;
     }
-    // writeAudio 强制实时节奏：640B / 20ms 分块喂数据，尾块补零对齐
+    // writeAudio 强制实时节奏：1280B / 40ms 分块喂数据，尾块补零对齐
     NativeVoice.asrFeedPos = 0;
+    NativeVoice.asrPadSent = 0;
     NativeVoice.asrFeedTimer = setInterval(() => NativeVoice.feedAsrChunk(sessionId), ASR_CHUNK_INTERVAL);
     const feedMs: number = NativeVoice.recorded.length / BYTES_PER_MS;
     NativeVoice.asrWatchTimer = setTimeout(() => {
@@ -440,6 +486,20 @@ export class NativeVoice {
     }
     const pos: number = NativeVoice.asrFeedPos;
     if (pos >= pcm.length) {
+      // 补一段静音再 finish：引擎需要尾部静音才能把最后一句话判为结束
+      if (NativeVoice.asrPadSent < ASR_PAD_CHUNKS) {
+        const silence: Uint8Array = new Uint8Array(ASR_CHUNK);
+        NativeVoice.asrChunkRing[NativeVoice.asrChunkRingIdx] = silence;
+        NativeVoice.asrChunkRingIdx = (NativeVoice.asrChunkRingIdx + 1) % NativeVoice.asrChunkRing.length;
+        try {
+          engine.writeAudio(sessionId, silence);
+          NativeVoice.asrPadSent++;
+        } catch (err) {
+          const e: BusinessError = err as BusinessError;
+          hilog.error(0x0000, TAG, 'writeAudio pad failed, code=%{public}d msg=%{public}s', e.code, e.message);
+        }
+        return;
+      }
       if (NativeVoice.asrFeedTimer >= 0) {
         clearInterval(NativeVoice.asrFeedTimer);
         NativeVoice.asrFeedTimer = -1;
@@ -456,10 +516,10 @@ export class NativeVoice {
       return;
     }
     const end: number = Math.min(pos + ASR_CHUNK, pcm.length);
-    // 复制到独立 640B 缓冲（byteOffset=0，尾块补零）：不用 subarray 视图，
+    // 复制到独立 1280B 缓冲（byteOffset=0，尾块补零）：不用 subarray 视图，
     // 并入环形引用表防 GC —— writeAudio 原生侧异步引用传入缓冲，视图被回收会 SEGV
     const chunk: Uint8Array = new Uint8Array(ASR_CHUNK);
-    chunk.set(pcm.subarray(pos, end));
+    NativeVoice.applyGain(pcm, pos, chunk, 0, end - pos);
     NativeVoice.asrChunkRing[NativeVoice.asrChunkRingIdx] = chunk;
     NativeVoice.asrChunkRingIdx = (NativeVoice.asrChunkRingIdx + 1) % NativeVoice.asrChunkRing.length;
     try {
