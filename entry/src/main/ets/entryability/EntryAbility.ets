@@ -22,8 +22,14 @@ export default class EntryAbility extends UIAbility {
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
     hilog.info(0x0000, TAG, '%{public}s', 'Ability onWindowStageCreate');
-    // 沉浸式：状态栏/导航条与游戏页背景同色，避免顶部出现白色系统栏
+    // 沉浸式：隐藏系统栏，页面铺满整屏（先设全屏布局，系统栏开关才生效）
     windowStage.getMainWindow().then((win: window.Window) => {
+      win.setWindowLayoutFullScreen(true).catch((err: BusinessError) => {
+        hilog.error(0x0000, TAG, 'setWindowLayoutFullScreen failed: %{public}s', JSON.stringify(err));
+      });
+      win.setWindowSystemBarEnable([]).catch((err: BusinessError) => {
+        hilog.error(0x0000, TAG, 'setWindowSystemBarEnable failed: %{public}s', JSON.stringify(err));
+      });
       win.setWindowSystemBarProperties({
         statusBarColor: '#FFF6E5',
         statusBarContentColor: '#5b4632',
