@@ -3,6 +3,7 @@ import { textToSpeech } from '@kit.CoreSpeechKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { NativeStore } from '../common/NativeStore';
 import { NativeVoice } from '../common/NativeVoice';
+import { NativePinyin } from '../common/NativePinyin';
 
 /**
  * 原生朗读引擎（CoreSpeechKit）。
@@ -151,6 +152,11 @@ class HanziNativeBridge {
   voiceCancel(): void {
     NativeVoice.cancelAll();
   }
+
+  /** 汉字转无音标拼音（读一读同音字容错判定用） */
+  pinyinOf(text: string): string {
+    return NativePinyin.toPinyin(text);
+  }
 }
 
 @Entry
@@ -187,7 +193,8 @@ struct Index {
             object: new HanziNativeBridge(),
             name: 'HanziNative',
             methodList: ['speak', 'stop', 'getProgress', 'setProgress', 'getSettings', 'setSettings',
-              'voiceEnsureMic', 'voiceStartRecord', 'voiceStopRecord', 'voicePlayRecording', 'voiceRecognize', 'voiceCancel'],
+              'voiceEnsureMic', 'voiceStartRecord', 'voiceStopRecord', 'voicePlayRecording', 'voiceRecognize', 'voiceCancel',
+              'pinyinOf'],
             controller: this.controller
           })
           .domStorageAccess(true)   // 轻微 UI 状态（hzk_last）仍存 localStorage

@@ -462,13 +462,25 @@ ALL_CHARS.forEach(ch => {
   if (!k) return;
   (PIN_INDEX[k] = PIN_INDEX[k] || []).push(ch.c);
 });
-// 判定：识别文本含目标字 / 目标词语 / 字库同音字（去声调）任一即读对
+// 判定：识别文本含目标字 / 目标词语 / 同音字（去声调）任一即读对
+// 同音判定优先走原生音译（任意同音字都算对），再退回字库内的同音字表
 function judgeRead(text, target) {
   const norm = String(text || '').replace(/[^一-龥]/g, '');
   if (!norm) return 'empty';
   if (norm.includes(target.c)) return 'ok';
   if (target.w && norm.includes(target.w)) return 'ok';
-  const homo = PIN_INDEX[stripTone(target.p)] || [];
+  const py = stripTone(target.p);
+  if (!py) return 'no';
+  // 1) 原生音译：识别文本里任一音节与目标读音相同即算读对（容忍 ASR 输出同音字）
+  try {
+    if (window.HanziNative && typeof window.HanziNative.pinyinOf === 'function') {
+      const asrPy = window.HanziNative.pinyinOf(norm) || '';
+      const sylls = asrPy.split(/\s+/).filter(Boolean);
+      if (sylls.indexOf(py) >= 0) return 'ok';
+    }
+  } catch (e) {}
+  // 2) 兜底：字库内同音字
+  const homo = PIN_INDEX[py] || [];
   for (let i = 0; i < homo.length; i++) if (norm.includes(homo[i])) return 'ok';
   return 'no';
 }
@@ -613,6 +625,7 @@ function tryResolveRead() {
   }
   if (!read.asrDone) return;
   const verdict = judgeRead(read.asrText, read.qs[read.i].target);
+  console.info('[read] asr=' + read.asrText + ' target=' + read.qs[read.i].target.c + ' verdict=' + verdict);
   if (verdict === 'ok') readCorrect();
   else if (verdict === 'empty') {
     // 空结果多为收音太小或引擎没收尾，按采集峰值给不同提示，别让孩子以为设备坏了
