@@ -2,6 +2,7 @@ import { webview } from '@kit.ArkWeb';
 import { textToSpeech } from '@kit.CoreSpeechKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { NativeStore } from '../common/NativeStore';
+import { NativeVoice } from '../common/NativeVoice';
 
 /**
  * 原生朗读引擎（CoreSpeechKit）。
@@ -124,6 +125,32 @@ class HanziNativeBridge {
   setSettings(json: string): void {
     NativeStore.set('settings', json);
   }
+
+  /* ===== 读一读：语音原语（状态机在 game.js，结果经 __onVoiceEvent 回推） ===== */
+
+  voiceEnsureMic(): void {
+    NativeVoice.ensureMic();
+  }
+
+  voiceStartRecord(): void {
+    NativeVoice.startRecord();
+  }
+
+  voiceStopRecord(): void {
+    NativeVoice.stopRecord();
+  }
+
+  voicePlayRecording(): void {
+    NativeVoice.playRecording();
+  }
+
+  voiceRecognize(word: string): void {
+    NativeVoice.recognize(word);
+  }
+
+  voiceCancel(): void {
+    NativeVoice.cancelAll();
+  }
 }
 
 @Entry
@@ -135,6 +162,15 @@ struct Index {
 
   aboutToAppear(): void {
     NativeTTS.init();
+    // 读一读：原生语音事件回推到网页 window.__onVoiceEvent(type, json)
+    NativeVoice.setEventSink((type: string, json: string) => {
+      try {
+        this.controller.runJavaScript(`window.__onVoiceEvent('${type}', ${json})`);
+      } catch (err) {
+        const e: BusinessError = err as BusinessError;
+        console.error(`voice event push failed, code=${e.code}, msg=${e.message}`);
+      }
+    });
     NativeStore.onReady(() => {
       this.webReady = true;
     });
@@ -150,7 +186,8 @@ struct Index {
           .javaScriptProxy({
             object: new HanziNativeBridge(),
             name: 'HanziNative',
-            methodList: ['speak', 'stop', 'getProgress', 'setProgress', 'getSettings', 'setSettings'],
+            methodList: ['speak', 'stop', 'getProgress', 'setProgress', 'getSettings', 'setSettings',
+              'voiceEnsureMic', 'voiceStartRecord', 'voiceStopRecord', 'voicePlayRecording', 'voiceRecognize', 'voiceCancel'],
             controller: this.controller
           })
           .domStorageAccess(true)   // 轻微 UI 状态（hzk_last）仍存 localStorage

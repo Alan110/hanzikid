@@ -3,6 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { NativeStore } from '../common/NativeStore';
+import { NativeVoice } from '../common/NativeVoice';
 
 const TAG: string = 'EntryAbility';
 
@@ -11,6 +12,8 @@ export default class EntryAbility extends UIAbility {
     hilog.info(0x0000, TAG, '%{public}s', 'Ability onCreate');
     // 提前初始化原生存储：网页加载前就绪，进度/设置读写才能同步返回
     NativeStore.init(this.context);
+    // 读一读玩法：语音原语（录音/回放/识别）需要的 UIAbility 上下文（权限申请用）
+    NativeVoice.init(this.context);
   }
 
   onDestroy(): void {

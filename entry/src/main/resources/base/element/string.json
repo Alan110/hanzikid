@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "识字小乐园"
+    },
+    {
+      "name": "mic_reason",
+      "value": "读一读玩法需要用麦克风录制小朋友的跟读发音，进行读音评测"
     }
   ]
 }
