@@ -523,7 +523,7 @@ function startRead(id) {
     id, qs: scored.slice(0, n).map(s => ({ target: s.ch })),
     i: 0, gold: 0, silver: 0, tries: 0, advancing: false,
     state: 'idle', degraded: !VOICE,
-    playbackDone: false, asrDone: false, asrText: null, asrFailed: false,
+    playbackDone: false, asrDone: false, asrText: null, asrFailed: false, peak: 0,
   };
   lastRun = { mode: 'read', id };
   $('readTitle').textContent = '🎤 ' + groupName(id);
@@ -540,6 +540,7 @@ function askRead() {
   read.asrDone = false;
   read.asrText = null;
   read.asrFailed = false;
+  read.peak = 0;
   clearReadGuard();
   $('readCounter').textContent = (read.i + 1) + ' / ' + read.qs.length;
   updateReadIcon();
@@ -586,7 +587,8 @@ function onRecStopped(ms) {
   if (!read.degraded) {
     // 回放与识别并行（writeAudio 是实时节奏，≈ 录音时长），体感零等待
     window.HanziNative.voiceRecognize(read.qs[read.i].target.w || '');
-    setReadGuard(15000, () => {
+    // 原生侧空结果会自动重试一次，兜底等待要覆盖两次识别
+    setReadGuard(25000, () => {
       if (read && read.state === 'processing' && !read.asrDone) { read.asrFailed = true; tryResolveRead(); }
     });
   } else {
@@ -613,8 +615,11 @@ function tryResolveRead() {
   const verdict = judgeRead(read.asrText, read.qs[read.i].target);
   if (verdict === 'ok') readCorrect();
   else if (verdict === 'empty') {
-    resetReadIdle('没听到你的声音哦，大点声再试一次 💪');
-    say([{ t: '没听到你的声音哦，大点声再试一次', r: rate() }]);
+    // 空结果多为收音太小或引擎没收尾，按采集峰值给不同提示，别让孩子以为设备坏了
+    const low = !read.peak || read.peak < 1500;
+    const tip = low ? '声音有点小哦，靠近一点大声读 💪' : '没听清，再大声说一次 💪';
+    resetReadIdle(tip);
+    say([{ t: tip, r: rate() }]);
   } else readWrong();
 }
 
@@ -715,6 +720,7 @@ window.__onVoiceEvent = (type, data) => {
       });
     }
   } else if (type === 'recStopped') {
+    read.peak = d.peak || 0;
     onRecStopped(d.ms || 0);
   } else if (type === 'playbackDone') {
     read.playbackDone = true;
@@ -838,6 +844,8 @@ function bindEvents() {
     if (!read || !VOICE) return;
     SFX.tap();
     if (read.state === 'idle') {
+      // 开录前先停掉正在播的语音提示/示范，避免把平板扬声器的声音录进来
+      try { window.HanziNative.stop(); } catch (e) {}
       read.state = 'waitRec';
       window.HanziNative.voiceStartRecord();
       // 保险：3 秒还没 recStarted 就复位（原生侧失败也会回推 recStopped{ms:0}）
