@@ -1,0 +1,10 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "@hanzi/jsbridge",
+  "version": "0.1.0",
+  "description": "通用 HarmonyOS JSBridge SDK：双通道自动协商（javaScriptProxy + WebMessagePort）、协议化 RPC、事件总线、二进制传输",
+  "main": "Index.ets",
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

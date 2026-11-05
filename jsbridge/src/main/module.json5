@@ -1,0 +1,11 @@
+{
+  "module": {
+    "name": "jsbridge",
+    "type": "har",
+    "deviceTypes": [
+      "tablet",
+      "phone",
+      "2in1"
+    ]
+  }
+}

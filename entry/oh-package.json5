@@ -6,5 +6,7 @@
   "main": "",
   "author": "",
   "license": "MIT",
-  "dependencies": {}
+  "dependencies": {
+    "@hanzi/jsbridge": "file:../jsbridge"
+  }
 }

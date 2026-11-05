@@ -23,9 +23,9 @@
         runtimeOS: 'HarmonyOS',
         buildOption: {
           strictMode: {
-            caseSensitiveCheck: true,
-          },
-        },
+            caseSensitiveCheck: true
+          }
+        },"targetSdkVersion": "26.0.0"
       },
     ],
     buildModeSet: [
@@ -41,6 +41,15 @@
     {
       name: 'entry',
       srcPath: './entry',
+      targets: [
+        {
+          name: 'default',
+        },
+      ],
+    },
+    {
+      name: 'jsbridge',
+      srcPath: './jsbridge',
       targets: [
         {
           name: 'default',
