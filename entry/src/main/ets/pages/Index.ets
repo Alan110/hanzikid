@@ -78,7 +78,7 @@ class NativeTTS {
       'queueMode': 0,
       'speed': speed,
       'volume': 2,
-      'pitch': 1
+      'pitch': 1.05   // 略微上扬，减少"念稿"的机械感（聆小珊为离线唯一中文音色）
     };
     const speakParams: textToSpeech.SpeakParams = {
       requestId: `${Date.now()}-${NativeTTS.seq++}`,
