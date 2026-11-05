@@ -1,9 +1,12 @@
 # 把「识字小乐园」装进原生鸿蒙平板
 
-这是一个 DevEco Studio 工程：用 ArkTS 的 Web 容器加载游戏 `index.html`（打包在
-`entry/src/main/resources/rawfile/` 里），装到平板后**完全离线**、有独立桌面图标，
-朗读优先用系统 `speechSynthesis`，若 ArkWeb 内核不支持则**自动切换到鸿蒙原生
-朗读引擎（CoreSpeechKit）**——游戏网页里已内置检测逻辑，无需配置。
+这是一个 DevEco Studio 工程：用 ArkTS 的 Web 容器加载游戏（Taro 跨端版产物，
+打包在 `entry/src/main/resources/rawfile/web/` 里），装到平板后**完全离线**、
+有独立桌面图标，朗读走鸿蒙原生朗读引擎（CoreSpeechKit），读一读走
+端侧录音/识别（AudioKit + Speech Kit），进度存原生 Preferences（卸载重装不丢）。
+
+游戏本体在 `../taro-app/`（Taro + React，一份代码出 H5/鸿蒙/Android/iOS 三端），
+本工程只是鸿蒙壳；Android/iOS 壳见 `../android-shell/`、`../ios-shell/`。
 
 ## 打包安装步骤（Windows 电脑 + 鸿蒙平板）
 
@@ -25,23 +28,36 @@
 
 ## 更新游戏内容
 
-游戏本体只有根目录的 `../index.html`。改完后：
+游戏本体在 `../taro-app/`，改完后：
 
 ```bash
-./sync-game.sh     # 把最新 index.html 拷进 rawfile
+cd ../taro-app
+npm run build:h5 && npm run sync:harmony   # 产物同步到 rawfile/web/
 ```
 
-再在 DevEco Studio 里 Run 一次即可。
+再在 DevEco Studio 里 Run 一次即可（命令行构建 HAP 也行，见下）。
+
+### 命令行构建 HAP（免开 IDE）
+
+```bash
+export PATH="/c/Program Files/Huawei/DevEco Studio/jbr/bin:$PATH"   # 打包签名需要 java
+export DEVECO_SDK_HOME="C:\Program Files\Huawei\DevEco Studio\sdk"
+"C:\Program Files\Huawei\DevEco Studio\tools\node\node.exe" \
+  "C:\Program Files\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw.js" \
+  --mode module -p product=default assembleHap --no-daemon
+# 产物：entry/build/default/outputs/default/entry-default-signed.hap
+```
 
 ## 工程结构
 
 ```
 AppScope/                     应用级配置（包名 com.alan.hanzikid、图标、名称）
 entry/
-  src/main/ets/pages/Index.ets        Web 容器 + HanziNative 朗读桥
-  src/main/ets/entryability/          标准 EntryAbility
-  src/main/resources/rawfile/index.html   ← 游戏本体（sync-game.sh 同步）
-  src/main/module.json5               模块清单（phone/tablet/2in1）
+  src/main/ets/pages/Index.ets        Web 容器 + HanziNative 桥（朗读/存储/语音）
+  src/main/ets/pages/BridgeDemo.ets   @hanzi/jsbridge SDK 演示页（独立于游戏）
+  src/main/ets/common/                TTS/存储/录音/拼音 原生实现
+  src/main/resources/rawfile/web/     ← 游戏本体（taro-app sync:harmony 同步）
+jsbridge/                     独立 JSBridge SDK（HAR 模块，游戏外的通用桥）
 ```
 
 ## 已知注意事项
