@@ -186,7 +186,8 @@ struct Index {
     Column() {
       if (this.webReady) {
         Web({
-          src: $rawfile('index.html'),
+          // Taro 跨端版产物（taro-app 执行 npm run build:h5 && npm run sync:harmony 同步到 web/）
+          src: $rawfile('web/index.html'),
           controller: this.controller
         })
           .javaScriptProxy({
