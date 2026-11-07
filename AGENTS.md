@@ -28,6 +28,8 @@ docs/            桥协议规范、构建部署经验等文档
 | `npx tsc --noEmit` | taro-app | 类型检查（vite build 不查类型，**必须单独跑**） |
 | `npm run build:h5` | taro-app | 构建 Web 产物 |
 | `npm run sync:all` | taro-app | 产物分发到三壳（harmony/android/ios） |
+| `open HanziKid.xcodeproj` | ios-shell | Xcode 打开 iOS 壳并 Run |
+| `xcodebuild -project HanziKid.xcodeproj -scheme HanziKid -destination 'platform=iOS Simulator,name=iPad (A16)' build` | ios-shell | 命令行编译 iOS 壳（验证用） |
 | `devecocli build` | harmony-app | 构建鸿蒙 HAP |
 | `devecocli run --skip-build --device <serial>` | harmony-app | 部署到设备 |
 

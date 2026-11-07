@@ -32,7 +32,24 @@
 	<true/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
-	<!-- 无 UIApplicationSceneManifest：经典 AppDelegate window 生命周期（见 AppDelegate.swift） -->
+	<!-- Scene 生命周期（iOS 27 SDK 起强制要求）：单窗口，根控制器见 SceneDelegate -->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<!-- 空 UILaunchscreen：iOS 14+ 获得全屏尺寸所必需 -->
 	<key>UILaunchscreen</key>
 	<dict/>

@@ -118,7 +118,7 @@ final class VoiceEngine: NSObject, AVAudioRecorderDelegate, AVAudioPlayerDelegat
             meterTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
                 guard let self = self, let rec = self.recorder else { return }
                 rec.updateMeters()
-                let db = Double(rec.peakPower(for: 0))
+                let db = Double(rec.peakPower(forChannel: 0))
                 let linear = pow(10.0, db / 20.0)
                 if linear > self.peakLinear { self.peakLinear = linear }
             }
@@ -186,7 +186,7 @@ final class VoiceEngine: NSObject, AVAudioRecorderDelegate, AVAudioPlayerDelegat
         }
         let request = SFSpeechURLRecognitionRequest(url: recordFileURL)
         request.shouldReportPartialResults = false
-        if #available(iOS 13.0, *) {
+        if #available(iOS 16.0, *) {
             request.addsPunctuation = true
         }
         recognizeTask?.cancel()

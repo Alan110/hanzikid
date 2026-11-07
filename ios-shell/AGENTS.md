@@ -7,11 +7,19 @@ Swift + WKWebView 壳。只做引擎调用、事件透传、哑 K-V，业务逻�
 ```
 HanziKid/
   AppDelegate.swift        入口
+  SceneDelegate.swift      Scene 生命周期：创建 window + 挂 ViewController
   ViewController.swift     WKWebView 装载 + UserScript 注入
   HanziNativeBridge.swift  桥实现（messageHandlers 异步通道 + kv 注入时快照）
   VoiceEngine.swift        AVSpeechSynthesizer TTS + AVAudioRecorder 录音 + SFSpeechRecognizer
-  www/                     ★ 构建产物，由 sync:ios 生成，勿手改
+  Info.plist               含 UIApplicationSceneManifest（iOS 27 SDK 起强制 Scene 生命周期）
+  www/                     ★ 构建产物，由 sync:ios 生成，勿手改（工程内为蓝色文件夹引用）
+HanziKid.xcodeproj/        可直接打开的工程（共享 Scheme），Mac 上 open 即可 Run
 ```
+
+## 运行
+
+- `open HanziKid.xcodeproj` 直接 Run；命令行：`xcodebuild -project HanziKid.xcodeproj -scheme HanziKid -destination 'platform=iOS Simulator,name=iPad (A16)' build`
+- 真机需在 target → Signing 选择 Team；Bundle ID `com.alan.hanzikid`（三端一致）
 
 ## 规则
 
