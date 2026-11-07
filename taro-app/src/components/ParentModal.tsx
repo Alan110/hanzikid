@@ -13,10 +13,12 @@ interface Props {
 }
 
 export default function ParentModal({ open, onClose }: Props) {
-  const { settings, patchSettings, stats, resetStats } = useGame()
+  const { settings, patchSettings, stats, resetStats, awards, resetAwards } = useGame()
   const [, force] = useState(0)
   const [resetArmed, setResetArmed] = useState(false)
+  const [resetAwardArmed, setResetAwardArmed] = useState(false)
   const [resetTimer, setResetTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
+  const [resetAwardTimer, setResetAwardTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
 
   if (!open) return null
 
@@ -37,6 +39,19 @@ export default function ParentModal({ open, onClose }: Props) {
     if (resetTimer) clearTimeout(resetTimer)
     setResetArmed(false)
     resetStats()
+    force(n => n + 1)
+  }
+
+  const onResetAwards = () => {
+    if (!resetAwardArmed) {
+      setResetAwardArmed(true)
+      const t = setTimeout(() => { setResetAwardArmed(false) }, 3000)
+      setResetAwardTimer(t)
+      return
+    }
+    if (resetAwardTimer) clearTimeout(resetAwardTimer)
+    setResetAwardArmed(false)
+    resetAwards()
     force(n => n + 1)
   }
 
@@ -103,6 +118,14 @@ export default function ParentModal({ open, onClose }: Props) {
             <p className="voice-note">入门时显示图片帮助联想；孩子熟悉后可切到「只看汉字」真正考认字。</p>
           </div>
           <div>
+            <div className="set-title">👀 看图找字题型</div>
+            <div className="seg" id="segPicQuiz">
+              <button className={'seg-btn' + (settings.picQuiz ? ' active' : '')} onClick={() => setSeg({ picQuiz: true })}>穿插出现</button>
+              <button className={'seg-btn' + (!settings.picQuiz ? ' active' : '')} onClick={() => setSeg({ picQuiz: false })}>只用听音</button>
+            </div>
+            <p className="voice-note">找一找里每几题穿插一道「看图找汉字」，锻炼看图认字；不想要可关闭。</p>
+          </div>
+          <div>
             <div className="set-title">🎯 每轮题数</div>
             <div className="seg" id="segLen">
               {[5, 10, 15].map(n => (
@@ -128,6 +151,9 @@ export default function ParentModal({ open, onClose }: Props) {
             </div>
           </div>
           <button className="danger" onClick={onReset}>{resetArmed ? '再点一次确认重置 ⚠️' : '🗑 重置全部进度'}</button>
+          <button className="danger" onClick={onResetAwards}>
+            {resetAwardArmed ? '再点一次确认清空 ⚠️' : `🧹 清空小星星和奖牌（现有 ⭐${awards.stars}）`}
+          </button>
         </div>
       </div>
     </div>

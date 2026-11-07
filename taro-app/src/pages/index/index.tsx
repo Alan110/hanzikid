@@ -1,15 +1,17 @@
 /* 识字小乐园主页面：屏幕路由 + 游戏上下文 + 全局事件（对应原 index.html/game.js 骨架） */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GameCtx, type ModeKey, type RunResult, type ScreenKey } from '../../game/ctx'
+import { applyRunResult, applyStars } from '../../game/awards'
 import HomeScreen from '../../components/screens/HomeScreen'
 import LearnScreen from '../../components/screens/LearnScreen'
 import QuizScreen from '../../components/screens/QuizScreen'
 import ReadScreen from '../../components/screens/ReadScreen'
 import EndScreen from '../../components/screens/EndScreen'
 import FlowScreen from '../../components/screens/FlowScreen'
+import AwardsScreen from '../../components/screens/AwardsScreen'
 import ParentModal from '../../components/ParentModal'
 import ConfettiLayer from '../../components/ConfettiLayer'
-import { loadLast, loadSettings, loadStats, saveSettings, saveStats, type Settings, type Stats } from '../../services/store'
+import { EMPTY_AWARDS, loadAwards, loadLast, loadSettings, loadStats, saveAwards, saveSettings, saveStats, type Awards, type Settings, type Stats } from '../../services/store'
 import Speech, { stopSpeak } from '../../services/speech'
 import { unlockAudio } from '../../services/sfx'
 import { native } from '../../services/native'
@@ -18,6 +20,7 @@ import './index.scss'
 export default function Index() {
   const [settings, setSettings] = useState<Settings>(() => loadSettings())
   const [stats, setStats] = useState<Stats>(() => loadStats())
+  const [awards, setAwards] = useState<Awards>(() => loadAwards())
   const [screen, setScreen] = useState<ScreenKey>('home')
   const [mode, setMode] = useState<ModeKey>(() => (loadLast().mode as ModeKey) || 'learn')
   const [parentOpen, setParentOpen] = useState(false)
@@ -29,6 +32,7 @@ export default function Index() {
   const ctxValue = useMemo(() => ({
     settings,
     stats,
+    awards,
     patchSettings: (patch: Partial<Settings>) => {
       setSettings(prev => {
         const next = Object.assign({}, prev, patch)
@@ -49,8 +53,18 @@ export default function Index() {
       setStats({})
       saveStats({})
     },
+    addStars: (n: number, m: string) => {
+      const r = applyStars(awards, n, m)
+      setAwards(r.next)
+      saveAwards(r.next)
+      return r.unlocked
+    },
+    resetAwards: () => {
+      setAwards(EMPTY_AWARDS)
+      saveAwards(EMPTY_AWARDS)
+    },
     goto: (s: ScreenKey) => setScreen(s),
-  }), [settings, stats])
+  }), [settings, stats, awards])
 
   const goHome = useCallback(() => {
     stopSpeak()
@@ -74,10 +88,15 @@ export default function Index() {
     }
   }, [])
 
-  const onFinish = useCallback((m: 'quiz' | 'read' | 'flow') => (gold: number, silver: number, total: number) => {
-    setResult({ mode: m, total, gold, silver })
-    setScreen('end')
-  }, [])
+  const onFinish = useCallback((m: 'quiz' | 'read' | 'flow') =>
+    (gold: number, silver: number, total: number, _wrong?: unknown, bestStreak?: number) => {
+      // 一局结束统一结算星星与奖牌（规则见 game/awards.ts）
+      const r = applyRunResult(awards, m, gold, silver, total, bestStreak || 0)
+      setAwards(r.next)
+      saveAwards(r.next)
+      setResult({ mode: m, total, gold, silver, stars: r.stars, medal: r.medal, unlocked: r.unlocked })
+      setScreen('end')
+    }, [awards])
 
   /* 首次触摸：解锁音频 & 语音（iOS 要求在用户手势内）；长按菜单屏蔽 */
   useEffect(() => {
@@ -146,6 +165,9 @@ export default function Index() {
             }}
             onHome={goHome}
           />
+        )}
+        {screen === 'awards' && (
+          <AwardsScreen onHome={goHome} />
         )}
         <ParentModal open={parentOpen} onClose={() => setParentOpen(false)} />
         <ConfettiLayer />

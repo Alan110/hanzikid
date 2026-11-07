@@ -1,11 +1,14 @@
-/* 认一认（字卡）：原样迁移 game.js 的 startLearn/renderLearn/speakCard */
+/* 认一认（字卡）：原样迁移 game.js 的 startLearn/renderLearn/speakCard
+ *  翻完一整组字卡奖励 2 颗小星星（全局账本），鼓励完整浏览 */
 import { useEffect, useState } from 'react'
 import { useGame } from '../../game/ctx'
 import { groupName, poolOf } from '../../game/util'
 import type { HanziChar } from '../../game/data'
 import type { Settings } from '../../services/store'
+import { WRAP_CHEERS } from '../../game/copy'
 import { SFX } from '../../services/sfx'
 import { rateOf, say } from '../../services/speech'
+import { confetti } from '../ConfettiLayer'
 import { useBump } from '../hooks'
 
 interface Props {
@@ -29,7 +32,7 @@ function speakCard(it: HanziChar, again: boolean, settings: Settings): void {
 }
 
 export default function LearnScreen({ groupId, onHome, chars, title, onDone }: Props) {
-  const { settings, patchSettings } = useGame()
+  const { settings, patchSettings, addStars } = useGame()
   const [i, setI] = useState(0)
   const list = chars && chars.length ? chars : poolOf(groupId)
   const it = list[Math.min(i, list.length - 1)]
@@ -38,6 +41,16 @@ export default function LearnScreen({ groupId, onHome, chars, title, onDone }: P
   const { cls, bump } = useBump()
   // 认一认默认只看汉字认字，图片提示按需点开，避免「看图猜字」
   const showIcon = !!settings.learnIcon
+
+  /** 翻完一整组（循环模式从末尾翻回首张）奖励 2 颗小星星 */
+  const awardWrap = () => {
+    const unlocked = addStars(2, 'learn')
+    SFX.win()
+    confetti(unlocked.length ? 30 : 15)
+    bump()
+    const cheer = WRAP_CHEERS[Math.floor(Math.random() * WRAP_CHEERS.length)]
+    say(cheer, settings)
+  }
 
   // 进入字卡自动朗读（对应原 renderLearn 里的 speakCard(it, false)）
   useEffect(() => {
@@ -96,8 +109,11 @@ export default function LearnScreen({ groupId, onHome, chars, title, onDone }: P
             if (linear) {
               if (last) onDone!()
               else setI(i + 1)
+            } else if (last) {
+              awardWrap()
+              setI(0)
             } else {
-              setI((i + 1) % list.length)
+              setI(i + 1)
             }
           }}
         >{linear && last ? '✨' : '›'}</button>

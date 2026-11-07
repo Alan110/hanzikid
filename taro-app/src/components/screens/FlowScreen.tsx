@@ -12,7 +12,7 @@ import QuizScreen from './QuizScreen'
 interface Props {
   groupId: string
   onHome: () => void
-  onFinish: (gold: number, silver: number, total: number) => void
+  onFinish: (gold: number, silver: number, total: number, wrong?: HanziChar[], bestStreak?: number) => void
 }
 
 interface Notice {
@@ -48,7 +48,7 @@ export default function FlowScreen({ groupId, onHome, onFinish }: Props) {
     timer.current = setTimeout(() => { setNotice(null); then() }, NOTICE_MS)
   }
 
-  const handleQuizFinish = (gold: number, silver: number, _total: number, wrong?: HanziChar[]) => {
+  const handleQuizFinish = (gold: number, silver: number, _total: number, wrong?: HanziChar[], bestStreak?: number) => {
     if (!firstRound.current) firstRound.current = { gold, silver }
     if (wrong && wrong.length) {
       setBatch(wrong)
@@ -58,7 +58,7 @@ export default function FlowScreen({ groupId, onHome, onFinish }: Props) {
       })
     } else {
       const fr = firstRound.current!
-      onFinish(fr.gold, fr.silver, totalRef.current)
+      onFinish(fr.gold, fr.silver, totalRef.current, undefined, bestStreak)
     }
   }
 

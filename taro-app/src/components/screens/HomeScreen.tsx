@@ -21,7 +21,7 @@ const MODES: { mode: ModeKey; icon: string; name: string; sub: string }[] = [
 ]
 
 export default function HomeScreen({ mode, onModeChange, onStart, onParent }: Props) {
-  const { settings, stats } = useGame()
+  const { settings, stats, awards, goto } = useGame()
 
   const renderGroup = (id: string, icon: string, name: string, color: string, pool: HanziChar[]) => {
     const mastered = pool.filter(ch => isMastered(stats, ch.c)).length
@@ -47,6 +47,8 @@ export default function HomeScreen({ mode, onModeChange, onStart, onParent }: Pr
     <section className="screen active" id="screen-home">
       <header className="topbar">
         <div className="logo">🐼 识字小乐园</div>
+        <button className="star-chip" aria-label="我的小星星" title="我的小星星"
+          onClick={() => { SFX.tap(); goto('awards') }}>⭐ {awards.stars}</button>
         <button className="icon-btn" aria-label="家长中心" onClick={() => { SFX.tap(); onParent() }}>⚙️</button>
       </header>
       <p className="subtitle">先选一个玩法，再挑一组汉字吧</p>

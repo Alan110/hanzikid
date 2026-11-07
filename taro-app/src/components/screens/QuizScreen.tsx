@@ -1,10 +1,12 @@
-/* 找一找（答题）：原样迁移 game.js 的 startQuiz/ask/renderOptions/answer/nextQ。
- * 状态机带链式定时器，采用 ref + 强制刷新的写法保持与原版一致的时序语义。 */
-import { useEffect, useRef, type CSSProperties } from 'react'
+/* 找一找（答题）：听音找字 + 看图找字穿插。
+ *  状态机带链式定时器，采用 ref + 强制刷新的写法保持与原版一致的时序语义。
+ *  答对后的推进改为「TTS 播完再出下一题」（speech.say 的 onDone + 兜底超时），
+ *  修复长夸奖语（如"你是识字小天才"）没说完就被下一题出题语音打断的问题。 */
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { useGame } from '../../game/ctx'
 import type { HanziChar } from '../../game/data'
 import { ALL_CHARS, poolOf, shuffle, pickQuestions } from '../../game/util'
-import { CHEERS, ENCOURAGE, LEADS, OPT_COLORS, PROMPT_TAILS, WRONG_OPENERS, AGAIN_PROMPTS, STREAK_CHEERS } from '../../game/copy'
+import { CHEERS, ENCOURAGE, LEADS, OPT_COLORS, PIC_LEADS, PROMPT_TAILS, WRONG_OPENERS, AGAIN_PROMPTS, STREAK_CHEERS } from '../../game/copy'
 import { SFX } from '../../services/sfx'
 import { rateOf, say } from '../../services/speech'
 import { confetti } from '../ConfettiLayer'
@@ -13,7 +15,7 @@ import { useBump, useForceUpdate, useLatest } from '../hooks'
 interface Props {
   groupId: string
   onHome: () => void
-  onFinish: (gold: number, silver: number, total: number, wrong?: HanziChar[]) => void
+  onFinish: (gold: number, silver: number, total: number, wrong?: HanziChar[], bestStreak?: number) => void
   /** 限定出题字池（学一学流程用）：只考这些字；缺省按进度从字组抽题 */
   targets?: HanziChar[]
 }
@@ -25,19 +27,38 @@ interface Opt {
   disabled: boolean
 }
 
+interface QuizQ {
+  target: HanziChar
+  opts: number
+  /** 看图找字：显示图片找汉字，不读目标字音 */
+  pic: boolean
+}
+
+interface FlyStar {
+  id: number
+  x: number
+  y: number
+  dx: number
+  dy: number
+}
+
 interface QuizState {
-  qs: { target: HanziChar; opts: number }[]
+  qs: QuizQ[]
   i: number
   gold: number
   silver: number
   attempts: number
   locked: boolean
+  /** 本题已推进（播完回调/手动跳过/兜底超时只允许其中一个生效） */
+  advanced: boolean
   options: Opt[]
   bubble: { text: string; cls: string }
   mascot: string
   stars: number
   /** 连击：连续一次答对的次数，答错即清零 */
   streak: number
+  /** 本局最高连击（结算连击奖励星用） */
+  bestStreak: number
   /** 选项入场动画进行中：任意点按后置 false，入场 stagger 不影响答题反馈动画 */
   pop: boolean
   /** 每题结果：'' 未答 / gold 一次答对 / silver 帮助后答对 */
@@ -54,7 +75,16 @@ function buildOptions(groupId: string, target: HanziChar, optCount: number): Opt
   return opts.map((o, idx) => ({ char: o, color: OPT_COLORS[idx % OPT_COLORS.length], status: '', disabled: false }))
 }
 
-function sayPrompt(target: HanziChar, settings: any): void {
+/** 看图找字穿插节奏：前 2 题听音热身，之后每 4 题插 1 题看图 */
+const isPicIdx = (idx: number): boolean => idx >= 2 && (idx - 2) % 4 === 3
+
+function sayPrompt(q: QuizQ, settings: any): void {
+  if (q.pic) {
+    // 看图找字：不读目标字音，只说引导语，考形义关联
+    say(PIC_LEADS[Math.floor(Math.random() * PIC_LEADS.length)], settings)
+    return
+  }
+  const target = q.target
   const rate = rateOf(settings)
   const lead = LEADS[Math.floor(Math.random() * LEADS.length)]
   const tail = PROMPT_TAILS[Math.floor(Math.random() * PROMPT_TAILS.length)]
@@ -79,22 +109,25 @@ export default function QuizScreen({ groupId, onHome, onFinish, targets }: Props
   const { cls: starBump, bump: bumpStar } = useBump()
   const { cls: mascotBump, bump: bumpMascot } = useBump()
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const starRef = useRef<HTMLDivElement | null>(null)
+  const flySeq = useRef(0)
+  const [flyStar, setFlyStar] = useState<FlyStar | null>(null)
 
   const quiz = useRef<QuizState>(null as any)
   if (!quiz.current) {
     // 对应原 startQuiz：前 2 题二选热身，其余四选；学一学流程只考刚认过的字
-    let qs: { target: HanziChar; opts: number }[]
+    let qs: QuizQ[]
     if (targets && targets.length) {
       // 单字回炉时直接四选，二选太容易蒙对
-      qs = shuffle(targets).map((ch, idx) => ({ target: ch, opts: targets.length === 1 ? 4 : (idx < 2 ? 2 : 4) }))
+      qs = shuffle(targets).map((ch, idx) => ({ target: ch, opts: targets!.length === 1 ? 4 : (idx < 2 ? 2 : 4), pic: settings.picQuiz && isPicIdx(idx) }))
     } else {
       const pool = poolOf(groupId)
       const n = Math.min(settings.len, pool.length)
-      qs = pickQuestions(pool, n, {}).map((ch, idx) => ({ target: ch, opts: idx < 2 ? 2 : 4 }))
+      qs = pickQuestions(pool, n, {}).map((ch, idx) => ({ target: ch, opts: idx < 2 ? 2 : 4, pic: settings.picQuiz && isPicIdx(idx) }))
     }
     quiz.current = {
-      qs, i: 0, gold: 0, silver: 0, attempts: 0, locked: false,
-      options: [], bubble: { text: '听一听，找出来 👇', cls: '' }, mascot: '🐼', stars: 0, streak: 0, pop: true,
+      qs, i: 0, gold: 0, silver: 0, attempts: 0, locked: false, advanced: false,
+      options: [], bubble: { text: '听一听，找出来 👇', cls: '' }, mascot: '🐼', stars: 0, streak: 0, bestStreak: 0, pop: true,
       dots: qs.map(() => '' as const),
     }
   }
@@ -107,14 +140,16 @@ export default function QuizScreen({ groupId, onHome, onFinish, targets }: Props
 
   const ask = () => {
     const q = quiz.current
+    const cur = q.qs[q.i]
     q.attempts = 0
     q.locked = false
+    q.advanced = false
     q.pop = true
-    q.bubble = { text: '听一听，找出来 👇', cls: '' }
-    q.mascot = '🐼'
-    q.options = buildOptions(groupId, q.qs[q.i].target, q.qs[q.i].opts)
+    q.bubble = { text: cur.pic ? '看一看，找出来 👇' : '听一听，找出来 👇', cls: '' }
+    q.mascot = cur.pic ? '👀' : '🐼'
+    q.options = buildOptions(groupId, cur.target, cur.opts)
     upd()
-    timerRef.current = setTimeout(() => sayPrompt(q.qs[q.i].target, sRef.current), 250)
+    timerRef.current = setTimeout(() => sayPrompt(cur, sRef.current), 250)
   }
 
   // 挂载即出第一题
@@ -126,17 +161,39 @@ export default function QuizScreen({ groupId, onHome, onFinish, targets }: Props
 
   const nextQ = () => {
     const q = quiz.current
+    if (q.advanced) return
+    q.advanced = true
+    if (timerRef.current) clearTimeout(timerRef.current)
     q.i++
     if (q.i >= q.qs.length) {
       // 没能一次答对的字（帮助后对/跳过）回传给学一学流程回炉
       const wrong = q.qs.filter((qq, idx) => q.dots[idx] !== 'gold').map(qq => qq.target)
-      onFinish(q.gold, q.silver, q.qs.length, wrong.length ? wrong : undefined)
+      onFinish(q.gold, q.silver, q.qs.length, wrong.length ? wrong : undefined, q.bestStreak)
     } else {
       ask()
     }
   }
 
-  const answer = (opt: Opt) => {
+  /** 飞星收集动画：答对时星星从选项飞进顶栏星星计数 */
+  const flyStarTo = (e: MouseEvent<HTMLButtonElement>) => {
+    const toEl = starRef.current
+    if (!toEl) return
+    const from = e.currentTarget.getBoundingClientRect()
+    const to = toEl.getBoundingClientRect()
+    const id = ++flySeq.current
+    const fx = from.left + from.width / 2
+    const fy = from.top + from.height / 2
+    setFlyStar({
+      id,
+      x: fx,
+      y: fy,
+      dx: (to.left + to.width / 2) - fx,
+      dy: (to.top + to.height / 2) - fy,
+    })
+    setTimeout(() => { setFlyStar(s => (s && s.id === id ? null : s)) }, 720)
+  }
+
+  const answer = (opt: Opt, e: MouseEvent<HTMLButtonElement>) => {
     const q = quiz.current
     const now = Date.now()
     if (q.locked || opt.disabled || now < cooldownRef.current) return
@@ -155,9 +212,11 @@ export default function QuizScreen({ groupId, onHome, onFinish, targets }: Props
       const streakCheer = first ? STREAK_CHEERS[q.streak + 1] : undefined
       if (first) q.streak++
       else q.streak = 0   // 帮助后答对不算"连续一次答对"
+      if (q.streak > q.bestStreak) q.bestStreak = q.streak
       const cheer = streakCheer ?? CHEERS[Math.floor(Math.random() * CHEERS.length)]
       q.mascot = cheer.m
       q.bubble = { text: q.streak >= 2 ? cheer.b + ` 🔥x${q.streak}` : cheer.b, cls: 'good' }
+      flyStarTo(e)
       bumpStar()
       bumpMascot()
       if (streakCheer) {
@@ -169,9 +228,9 @@ export default function QuizScreen({ groupId, onHome, onFinish, targets }: Props
       }
       const parts: { t: string; r?: number }[] = [{ t: cheer.s }]
       parts.push({ t: '这是「' + target.c + '」', r: rate * 0.95 }, { t: target.c, r: rate * 0.85 })
-      say(parts, sRef.current)
       upd()
-      timerRef.current = setTimeout(nextQ, streakCheer ? 2600 : 2000)
+      // 夸奖说完再出下一题（onDone 由原生 TTS 播完事件/浏览器 onend 触发，兜底超时防卡）
+      say(parts, sRef.current, () => nextQ())
     } else {
       q.attempts++
       q.streak = 0
@@ -220,7 +279,8 @@ export default function QuizScreen({ groupId, onHome, onFinish, targets }: Props
   const q = quiz.current
   const cur = q.qs[q.i]
   // 图片 span 始终渲染，由 hints 只切显隐：切换时汉字、顺序、答题状态都不变
-  const hints = settings.hints
+  // 看图找字题强制不显示选项图片（否则图片和题面一模一样，等于送答案）
+  const hints = settings.hints && !cur.pic
 
   return (
     <section className="screen active" id="screen-quiz">
@@ -229,18 +289,21 @@ export default function QuizScreen({ groupId, onHome, onFinish, targets }: Props
         <div className={'mascot ' + mascotBump} id="mascot">{q.mascot}</div>
         <button
           className="icon-btn"
-          aria-label={hints ? '隐藏图片提示' : '显示图片提示'}
+          aria-label={settings.hints ? '隐藏图片提示' : '显示图片提示'}
           title="看图提示开/关"
-          onClick={() => { patchSettings({ hints: !hints }); SFX.tap() }}
-        >{hints ? '🙈' : '🖼️'}</button>
+          onClick={() => { patchSettings({ hints: !settings.hints }); SFX.tap() }}
+        >{settings.hints ? '🙈' : '🖼️'}</button>
         <button className="icon-btn" aria-label="下一题" title="下一题"
-          onClick={() => { if (!q.locked) { SFX.tap(); if (timerRef.current) clearTimeout(timerRef.current); nextQ() } }}>⏭️</button>
-        <div className={'star-count ' + starBump} id="starCount">⭐ {q.stars}</div>
+          onClick={() => { if (!q.locked) { SFX.tap(); nextQ() } }}>⏭️</button>
+        <div ref={starRef} className={'star-count ' + starBump} id="starCount">⭐ {q.stars}</div>
         {q.streak >= 2 && <div className="streak-badge">🔥x{q.streak}</div>}
       </header>
       <div className="bubble-row">
-        <div className={'bubble ' + q.bubble.cls} id="bubbleText">{q.bubble.text}</div>
-        <button className="replay-btn" onClick={() => { SFX.tap(); sayPrompt(cur.target, sRef.current) }}>
+        <div className={'bubble ' + q.bubble.cls} id="bubbleText">
+          {cur.pic && <span className={'pic-prompt' + (cur.target.e.length > 2 ? ' small' : '')}>{cur.target.e}</span>}
+          {q.bubble.text}
+        </div>
+        <button className="replay-btn" onClick={() => { if (!q.locked) { SFX.tap(); sayPrompt(cur, sRef.current) } }}>
           🔊<small>再听一遍</small>
         </button>
       </div>
@@ -256,13 +319,20 @@ export default function QuizScreen({ groupId, onHome, onFinish, targets }: Props
             className={'opt ' + (q.pop ? 'pop ' : '') + o.status + (hints ? ' with-emoji' : '')}
             style={{ borderColor: o.color, '--d': `${idx * 70}ms` } as CSSProperties}
             disabled={o.disabled}
-            onClick={() => answer(o)}
+            onClick={(e) => answer(o, e)}
           >
             <span className={'opt-emoji' + (o.char.e.length > 2 ? ' small' : '')} style={{ display: hints ? '' : 'none' }}>{o.char.e}</span>
             <span className="opt-char kai">{o.char.c}</span>
           </button>
         ))}
       </div>
+      {flyStar && (
+        <span
+          key={flyStar.id}
+          className="fly-star"
+          style={{ left: flyStar.x, top: flyStar.y, '--dx': `${flyStar.dx}px`, '--dy': `${flyStar.dy}px` } as CSSProperties}
+        >⭐</span>
+      )}
     </section>
   )
 }

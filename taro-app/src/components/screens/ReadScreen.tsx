@@ -207,9 +207,10 @@ export default function ReadScreen({ groupId, onHome, onFinish }: Props) {
     SFX.cheer()
     if (first) confetti(10)
     const rate = rateOf(sRef.current)
-    say([{ t: cheer.s }, { t: '这是「' + q.target.c + '」', r: rate * 0.95 }, { t: q.target.c, r: rate * 0.85 }], sRef.current)
+    // 夸奖说完再进下一题（播完回调 + 兜底超时双保险，nextReadQ 有 advancing 防重入）
+    say([{ t: cheer.s }, { t: '这是「' + q.target.c + '」', r: rate * 0.95 }, { t: q.target.c, r: rate * 0.85 }], sRef.current, () => nextReadQ())
     upd()
-    setReadGuard(2000, nextReadQ)
+    setReadGuard(4500, nextReadQ)
   }
 
   const showReadFeedback = (target: HanziChar) => {
