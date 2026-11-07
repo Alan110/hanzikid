@@ -180,7 +180,12 @@ export function say(parts: string | (string | SayPart)[], settings: Settings, on
     }
     // 兜底超时放宽：音频段间有间隔，且失败回退 TTS 时也靠它保底
     if (onDone) armSpeakDone(onDone, estimateMs(joinText(list), rate) + 1200)
-    playPack(clips as string[], packRate(rate), fireSpeakDone, () => {
+    // 刻意重复的单字（如「小猫 → 猫」）拉开停顿，避免听成回声
+    const gaps = list.slice(1).map((o, idx) => {
+      const prev = list[idx].t
+      return o.t.length === 1 && prev.endsWith(o.t) ? 450 : 220
+    })
+    playPack(clips as string[], packRate(rate), gaps, fireSpeakDone, () => {
       // 自动播放被拦截 / 文件缺失 / 解码失败 → 整句回退系统 TTS
       speakViaEngine(list, baseRate, onDone, false)
     })

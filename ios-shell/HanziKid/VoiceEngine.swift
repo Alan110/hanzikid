@@ -68,6 +68,7 @@ final class VoiceEngine: NSObject, AVAudioRecorderDelegate, AVAudioPlayerDelegat
     }
 
     func speak(text: String, rate: Double, id: String) {
+        NSLog("[HanziKid] TTS speak id=%@ rate=%.2f text=%@", id, rate, text)
         // 游戏侧 rate：1.0 约为常速，单字约 0.65（更慢）；
         // AVSpeechUtteranceRate 范围 0～1（默认 0.5），线性压到自然区间
         let u = SpeakUtterance(string: text)
@@ -89,6 +90,7 @@ final class VoiceEngine: NSObject, AVAudioRecorderDelegate, AVAudioPlayerDelegat
     }
 
     func stopSpeak() {
+        NSLog("[HanziKid] TTS stop")
         synth.stopSpeaking(at: .immediate)
     }
 

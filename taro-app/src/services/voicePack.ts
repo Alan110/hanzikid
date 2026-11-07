@@ -50,13 +50,16 @@ export function stopPackAudio(): void {
 }
 
 /**
- * 顺序播放多段音频（段间 110ms）。
+ * 顺序播放多段音频（段间默认 220ms，接近原 TTS 逗号停顿）。
+ * gaps 可逐段指定停顿：认字卡「猫 → 小猫 → 猫」这种刻意重复，
+ * 间隔太短会听成回声/口吃，调用方会对重复单字给更长的停顿。
  * onDone：最后一段自然播完；onError：任一段加载/播放失败（含自动播放被拦截）。
  * 已播出的段落不重放，由调用方决定回退策略。
  */
 export function playPack(
   clips: string[],
   rate: number,
+  gaps: number[],
   onDone: () => void,
   onError: () => void,
 ): void {
@@ -76,7 +79,8 @@ export function playPack(
     a.onended = () => {
       if (my !== token) return
       current = null
-      setTimeout(() => { if (my === token) next() }, 110)
+      const gap = gaps[i - 1] ?? 220
+      setTimeout(() => { if (my === token) next() }, gap)
     }
     a.onerror = () => {
       if (my !== token) return

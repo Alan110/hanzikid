@@ -19,6 +19,7 @@ taro-app/src/services/speech.ts                   ← 音色包优先，未命�
 ```
 
 - 音频随 `dist` 经 `npm run sync:all` 分发到三壳，Web 侧统一切换，**不改桥协议**。
+- 只有 `taro-app/public/audio` 入库（无密钥环境也能构建）；三壳内嵌的 `www` / `rawfile/web` 是生成物，不入库。
 - 文本 key 归一化：去掉标点、emoji、空格，只保留汉字/字母/数字（`packKey()`）。
 - 语速：音包按「略慢」生成，家长速度档位用 `playbackRate` 微调（0.9 / 1.0 / 1.08），不做变调重合成。
 
@@ -39,7 +40,8 @@ taro-app/src/services/speech.ts                   ← 音色包优先，未命�
 
 `say(parts, settings, onDone)`：
 
-1. 所有分段都能在 manifest 命中 → 顺序播放音频（段间 110ms），最后一段结束触发 `onDone`；
+1. 所有分段都能在 manifest 命中 → 顺序播放音频（段间默认 220ms，接近原 TTS 逗号停顿；
+   「小猫 → 猫」这类刻意重复的单字自动拉长到 450ms，避免听成回声），最后一段结束触发 `onDone`；
 2. 任一 miss / 播放失败（自动播放策略、文件缺失） → 整句回退原生 TTS（原有逻辑，含兜底超时）；
 3. `stopSpeak()` 同时停止音包播放；
 4. 浏览器 H5 同样优先音包，没有音包时回退 `speechSynthesis`。
@@ -85,7 +87,7 @@ npm run build:h5 && npm run sync:all
 
 ## 6. 验收
 
-1. `npx tsc --noEmit` → `npm run build:h5` → `npm run sync:all`
+1. `npx tsc --noEmit` → `npm run build:h5` → `npm run sync:all` → `npm run check:sync`
 2. iOS 模拟器/真机跑游戏，认字卡、找一找、读一读的播报均为音包音色；
 3. 断网复测：音包仍可播（证明离线）；
 4. 临时删除某条 manifest 记录，确认该句回退系统 TTS 且流程不卡。
