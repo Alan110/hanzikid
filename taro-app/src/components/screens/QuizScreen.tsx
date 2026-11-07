@@ -255,18 +255,20 @@ export default function QuizScreen({ groupId, onHome, onFinish, targets }: Props
         const enc = ENCOURAGE[Math.floor(Math.random() * ENCOURAGE.length)]
         q.bubble = { text: w.w ? `「${w.c}」是${w.w}哦，再找找 💪` : `「${w.c}」不对哦，${enc} 💪`, cls: 'bad' }
         const parts: { t: string; r?: number }[] = [{ t: opener, r: rate * 0.95 }]
-        // 读出误选字：如「这个字念『马』，小马的马」
+        // 读出误选字：如「这个字念『马』，小马的马」。拆成两段，音色包可分别命中
         if (w.w) {
-          parts.push({ t: '这个字念「' + w.c + '」，' + w.w + '的' + w.c, r: rate * 0.85 })
+          parts.push({ t: '这个字念「' + w.c + '」', r: rate * 0.85 })
+          parts.push({ t: w.w + '的' + w.c, r: rate * 0.85 })
         } else {
           parts.push({ t: '这个字念「' + w.c + '」', r: rate * 0.85 })
         }
-        // 提醒目标并让小孩继续找
+        // 提醒目标并让小孩继续找（目标句与"再找找"分开，避免拼接串 miss 音包）
         if (target.w) {
-          parts.push({ t: '我们要找的是「' + target.w + '的' + target.c + '」哦，' + again, r: rate * 0.95 })
+          parts.push({ t: '我们要找的是「' + target.w + '的' + target.c + '」哦', r: rate * 0.95 })
         } else {
-          parts.push({ t: '我们要找的是「' + target.c + '」哦，' + again, r: rate * 0.95 })
+          parts.push({ t: '我们要找的是「' + target.c + '」哦', r: rate * 0.95 })
         }
+        parts.push({ t: again, r: rate * 0.95 })
         say(parts, sRef.current)
         // 反馈播报期间忽略点按，防止小孩连续误触
         cooldownRef.current = now + WRONG_FEEDBACK_MS
