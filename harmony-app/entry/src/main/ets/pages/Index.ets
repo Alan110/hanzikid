@@ -13,7 +13,15 @@ class NativeTTS {
   private static engine: textToSpeech.TextToSpeechEngine | null = null;
   private static pendingText: string = '';
   private static pendingRate: number = 1;
+  private static pendingId: string = '';
   private static seq: number = 0;
+  /** 原始事件回推（id + status 原样转发，匹配/语义判断全在网页侧） */
+  private static eventSink: ((id: string, status: string) => void) | null = null;
+
+  /** 网页侧注册 TTS 原始状态回推：status ∈ complete/error/stop，id 为网页 speak 时传入的播报 id */
+  static setEventSink(sink: (id: string, status: string) => void): void {
+    NativeTTS.eventSink = sink;
+  }
 
   static init(): void {
     if (NativeTTS.engine !== null) {
@@ -38,14 +46,24 @@ class NativeTTS {
         },
         onComplete(requestId: string, response: textToSpeech.CompleteResponse): void {
           console.info(`TTS onComplete, requestId=${requestId}`);
+          // 原样转发：过期/打断请求也带上 id，由网页侧按 id 判断取舍
+          if (NativeTTS.eventSink) {
+            NativeTTS.eventSink(requestId, 'complete');
+          }
         },
         onStop(requestId: string, response: textToSpeech.StopResponse): void {
           console.info(`TTS onStop, requestId=${requestId}`);
+          if (NativeTTS.eventSink) {
+            NativeTTS.eventSink(requestId, 'stop');
+          }
         },
         onData(requestId: string, audio: ArrayBuffer, response: textToSpeech.SynthesisResponse): void {
         },
         onError(requestId: string, errorCode: number, errorMessage: string): void {
           console.error(`TTS onError, requestId=${requestId}, code=${errorCode}, msg=${errorMessage}`);
+          if (NativeTTS.eventSink) {
+            NativeTTS.eventSink(requestId, 'error');
+          }
         }
       };
       data.setListener(listener);
@@ -53,8 +71,9 @@ class NativeTTS {
       if (NativeTTS.pendingText !== '') {
         const text = NativeTTS.pendingText;
         const speakRate = NativeTTS.pendingRate;
+        const speakId = NativeTTS.pendingId;
         NativeTTS.pendingText = '';
-        NativeTTS.speak(text, speakRate);
+        NativeTTS.speak(text, speakRate, speakId);
       }
     }).catch((err: BusinessError) => {
       // 引擎初始化失败不影响游戏运行，只是没有朗读（模拟器通常无 TTS 能力）
@@ -62,11 +81,12 @@ class NativeTTS {
     });
   }
 
-  static speak(text: string, rate: number): void {
+  static speak(text: string, rate: number, id: string): void {
     if (NativeTTS.engine === null) {
       // 引擎尚未就绪：暂存内容，init 成功后自动补播
       NativeTTS.pendingText = text;
       NativeTTS.pendingRate = rate;
+      NativeTTS.pendingId = id;
       NativeTTS.init();
       return;
     }
@@ -80,8 +100,10 @@ class NativeTTS {
       'volume': 2,
       'pitch': 1.05   // 略微上扬，减少"念稿"的机械感（聆小珊为离线唯一中文音色）
     };
+    // 播报 id 直接用网页传入的 id 当 requestId：引擎回调原样带回，原生不做任何匹配
+    const requestId = id !== '' ? id : `${Date.now()}-${NativeTTS.seq++}`;
     const speakParams: textToSpeech.SpeakParams = {
-      requestId: `${Date.now()}-${NativeTTS.seq++}`,
+      requestId: requestId,
       extraParams: extraParam
     };
     try {
@@ -89,6 +111,9 @@ class NativeTTS {
     } catch (err) {
       const e = err as BusinessError;
       console.error(`TTS speak failed, code=${e.code}, msg=${e.message}`);
+      if (NativeTTS.eventSink) {
+        NativeTTS.eventSink(requestId, 'error');
+      }
     }
   }
 
@@ -101,15 +126,27 @@ class NativeTTS {
 
 /** 注入到网页里的 window.HanziNative 对象 */
 class HanziNativeBridge {
-  speak(text: string, rate: number): void {
-    NativeTTS.speak(text, rate);
+  /** 朗读：id 由网页生成（引擎回调原样带回，供网页按 id 匹配播报完成） */
+  speak(text: string, rate: number, id: string): void {
+    NativeTTS.speak(text, rate, id);
   }
 
   stop(): void {
     NativeTTS.stop();
   }
 
-  /** 学习进度（hzk_stats 的 JSON 字符串，空串表示无数据） */
+  /* ===== 通用 K-V 持久化：网页侧数据路由（stats/settings/awards/未来新类型） ===== */
+
+  kvGet(key: string): string {
+    return NativeStore.get(key);
+  }
+
+  kvSet(key: string, value: string): void {
+    NativeStore.set(key, value);
+  }
+
+  /* ===== legacy 专用键（老版本数据迁移用：网页侧回退链 kvGet -> 以下方法 -> localStorage） ===== */
+
   getProgress(): string {
     return NativeStore.get('progress');
   }
@@ -118,7 +155,6 @@ class HanziNativeBridge {
     NativeStore.set('progress', json);
   }
 
-  /** 家长设置（hzk_settings 的 JSON 字符串，空串表示无数据） */
   getSettings(): string {
     return NativeStore.get('settings');
   }
@@ -168,6 +204,15 @@ struct Index {
 
   aboutToAppear(): void {
     NativeTTS.init();
+    // TTS 播报状态回推到网页 window.__onSpeakDone(id, status)，id 原样透传
+    NativeTTS.setEventSink((id: string, status: string) => {
+      try {
+        this.controller.runJavaScript(`window.__onSpeakDone && window.__onSpeakDone('${id}', '${status}')`);
+      } catch (err) {
+        const e = err as BusinessError;
+        console.error(`tts event push failed, code=${e.code}, msg=${e.message}`);
+      }
+    });
     // 读一读：原生语音事件回推到网页 window.__onVoiceEvent(type, json)
     NativeVoice.setEventSink((type: string, json: string) => {
       try {
@@ -193,7 +238,8 @@ struct Index {
           .javaScriptProxy({
             object: new HanziNativeBridge(),
             name: 'HanziNative',
-            methodList: ['speak', 'stop', 'getProgress', 'setProgress', 'getSettings', 'setSettings',
+            methodList: ['speak', 'stop', 'kvGet', 'kvSet',
+              'getProgress', 'setProgress', 'getSettings', 'setSettings',
               'voiceEnsureMic', 'voiceStartRecord', 'voiceStopRecord', 'voicePlayRecording', 'voiceRecognize', 'voiceCancel',
               'pinyinOf'],
             controller: this.controller

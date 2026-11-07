@@ -51,12 +51,60 @@ const Speech = {
 
 let sayTimer: ReturnType<typeof setTimeout> | null = null
 
+/* ===== 播完回调：原生壳回推 __onSpeakDone(id, status)，浏览器降级用 utterance.onend，均带兜底超时 ===== */
+
+let speakDoneCb: (() => void) | null = null
+let speakDoneTimer: ReturnType<typeof setTimeout> | null = null
+let lastUtterance: SpeechSynthesisUtterance | null = null
+/** 当前原生播报 id（网页生成，speak 时传给原生，事件按 id 匹配，过期/打断事件直接丢弃） */
+let lastSpeakId = ''
+let speakSeq = 0
+
+function fireSpeakDone(): void {
+  const cb = speakDoneCb
+  speakDoneCb = null
+  if (speakDoneTimer) { clearTimeout(speakDoneTimer); speakDoneTimer = null }
+  if (cb) cb()
+}
+
+/** 丢弃未触发的播完回调（新一轮播报 / 主动停止前调用） */
+function cancelSpeakDone(): void {
+  speakDoneCb = null
+  lastUtterance = null
+  if (speakDoneTimer) { clearTimeout(speakDoneTimer); speakDoneTimer = null }
+}
+
+function armSpeakDone(cb: () => void, fallbackMs: number): void {
+  speakDoneCb = cb
+  if (speakDoneTimer) clearTimeout(speakDoneTimer)
+  speakDoneTimer = setTimeout(fireSpeakDone, fallbackMs)
+}
+
+if (typeof window !== 'undefined') {
+  // 原生壳回推 TTS 原始状态：按播报 id 匹配当前这轮，只认自然播完/出错；
+  // stop（被打断）与过期 id 的事件一律丢弃，由新一轮 say() 的 cancel 覆盖
+  window.__onSpeakDone = (id: string, status: string) => {
+    if (id !== lastSpeakId) return
+    if (status === 'complete' || status === 'error') fireSpeakDone()
+  }
+}
+
+/** 粗估播报时长（兜底超时用，宁长勿短，防事件丢失卡住流程） */
+function estimateMs(text: string, rate: number): number {
+  const chars = text.replace(/\s/g, '').length
+  const pauses = (text.match(/[！？。，、.!?]/g) || []).length
+  const body = (chars * 340 + pauses * 200) / Math.max(0.6, rate) + 900
+  return Math.min(10000, Math.max(3500, body))
+}
+
 /** 朗读一段/多段文本。原生壳内只要桥存在就优先走原生 TTS：
  *  ArkWeb 里 window.speechSynthesis 对象可能存在但底层没有 TTS 引擎（出不了声），
- *  所以不能拿 'speechSynthesis' in window 做判断依据。 */
-export function say(parts: string | (string | SayPart)[], settings: Settings): void {
+ *  所以不能拿 'speechSynthesis' in window 做判断依据。
+ *  onDone：整段自然播完后回调（打断不回调），用于"夸奖说完再出下一题"。 */
+export function say(parts: string | (string | SayPart)[], settings: Settings, onDone?: () => void): void {
   const list = (Array.isArray(parts) ? parts : [parts]).map(p => (typeof p === 'string' ? { t: p } : p))
   const baseRate = rateOf(settings)
+  cancelSpeakDone()
   if (native) {
     native.stop()
     // 智能拼接：上一段已带句读就不再补逗号，减少生硬停顿，朗读更连贯
@@ -74,25 +122,42 @@ export function say(parts: string | (string | SayPart)[], settings: Settings): v
         rate = o.r || baseRate
       }
     })
-    native.speak(text, Math.round(rate * 100) / 100)
+    if (onDone) armSpeakDone(onDone, estimateMs(text, rate))
+    // 播报 id 由网页生成并随 speak 传给原生：原生回调原样带回，__onSpeakDone 按 id 匹配这轮播报
+    lastSpeakId = `spk-${Date.now()}-${++speakSeq}`
+    native.speak(text, Math.round(rate * 100) / 100, lastSpeakId)
     return
   }
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    if (onDone) setTimeout(onDone, 400)
+    return
+  }
   speechSynthesis.cancel()
   if (sayTimer) clearTimeout(sayTimer)
   sayTimer = setTimeout(() => {
-    list.forEach(o => {
+    list.forEach((o, idx) => {
       const u = new SpeechSynthesisUtterance(o.t)
       u.lang = 'zh-CN'
       if (Speech.voice) u.voice = Speech.voice
       u.rate = o.r || baseRate
       u.pitch = 1.06               // 略抬高一点点，更活泼、不刻板；咬字仍清楚
+      if (onDone && idx === list.length - 1) {
+        lastUtterance = u
+        u.onend = () => { if (lastUtterance === u) fireSpeakDone() }
+      }
       speechSynthesis.speak(u)
     })
+    if (onDone) {
+      let all = ''
+      list.forEach(o => { all += o.t })
+      armSpeakDone(onDone, estimateMs(all, baseRate))
+    }
   }, 60)
 }
 
 export function stopSpeak(): void {
+  cancelSpeakDone()
+  if (native) { try { native.stop() } catch (e) { /* 忽略 */ } }
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try { speechSynthesis.cancel() } catch (e) { /* 忽略 */ }
   }
