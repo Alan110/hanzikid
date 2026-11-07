@@ -1,7 +1,8 @@
-/* 语音合成（TTS）：原生桥优先，浏览器回退 speechSynthesis（原样迁移 game.js） */
+/* 语音合成（TTS）：音色包优先 → 原生桥 → 浏览器 speechSynthesis（原样迁移 game.js） */
 import { native } from './native'
 import { RATES } from '../game/copy'
 import type { Settings } from './store'
+import { clipFor, hasVoicePack, packRate, playPack, stopPackAudio } from './voicePack'
 
 export const rateOf = (settings: Settings): number => RATES[settings.rate] || 0.95
 
@@ -97,32 +98,37 @@ function estimateMs(text: string, rate: number): number {
   return Math.min(10000, Math.max(3500, body))
 }
 
-/** 朗读一段/多段文本。原生壳内只要桥存在就优先走原生 TTS：
- *  ArkWeb 里 window.speechSynthesis 对象可能存在但底层没有 TTS 引擎（出不了声），
- *  所以不能拿 'speechSynthesis' in window 做判断依据。
- *  onDone：整段自然播完后回调（打断不回调），用于"夸奖说完再出下一题"。 */
-export function say(parts: string | (string | SayPart)[], settings: Settings, onDone?: () => void): void {
-  const list = (Array.isArray(parts) ? parts : [parts]).map(p => (typeof p === 'string' ? { t: p } : p))
-  const baseRate = rateOf(settings)
-  cancelSpeakDone()
+/** 多段文本拼成整句（原生 TTS 用，段间补逗号产生自然停顿） */
+function joinText(list: SayPart[]): string {
+  let text = ''
+  list.forEach(o => {
+    if (text && !/[！？。，,、.!?]$/.test(text)) text += '，'
+    text += o.t
+  })
+  return text
+}
+
+/** 语速取文本最长一段：整句更连贯自然，避免被最慢的单字段拖得机械拖沓 */
+function longestRate(list: SayPart[], baseRate: number): number {
+  let rate = baseRate
+  let longest = 0
+  list.forEach(o => {
+    if (o.t.length > longest) {
+      longest = o.t.length
+      rate = o.r || baseRate
+    }
+  })
+  return rate
+}
+
+/** 走系统 TTS（原生桥优先，浏览器 speechSynthesis 兜底） */
+function speakViaEngine(list: SayPart[], baseRate: number, onDone: (() => void) | undefined, arm: boolean): void {
+  stopPackAudio()
   if (native) {
     native.stop()
-    // 智能拼接：上一段已带句读就不再补逗号，减少生硬停顿，朗读更连贯
-    let text = ''
-    list.forEach(o => {
-      if (text && !/[！？。，,、.!?]$/.test(text)) text += '，'
-      text += o.t
-    })
-    // 语速取文本最长一段的语速：整句更连贯自然，避免整句被最慢的单字段拖得机械拖沓
-    let rate = baseRate
-    let longest = 0
-    list.forEach(o => {
-      if (o.t.length > longest) {
-        longest = o.t.length
-        rate = o.r || baseRate
-      }
-    })
-    if (onDone) armSpeakDone(onDone, estimateMs(text, rate))
+    const text = joinText(list)
+    const rate = longestRate(list, baseRate)
+    if (arm && onDone) armSpeakDone(onDone, estimateMs(text, rate))
     // 播报 id 由网页生成并随 speak 传给原生：原生回调原样带回，__onSpeakDone 按 id 匹配这轮播报
     lastSpeakId = `spk-${Date.now()}-${++speakSeq}`
     native.speak(text, Math.round(rate * 100) / 100, lastSpeakId)
@@ -147,7 +153,7 @@ export function say(parts: string | (string | SayPart)[], settings: Settings, on
       }
       speechSynthesis.speak(u)
     })
-    if (onDone) {
+    if (arm && onDone) {
       let all = ''
       list.forEach(o => { all += o.t })
       armSpeakDone(onDone, estimateMs(all, baseRate))
@@ -155,8 +161,38 @@ export function say(parts: string | (string | SayPart)[], settings: Settings, on
   }, 60)
 }
 
+/** 朗读一段/多段文本。
+ *  优先级：预生成音色包（三端统一、离线）→ 原生 TTS → 浏览器 speechSynthesis。
+ *  onDone：整段自然播完后回调（打断不回调），用于"夸奖说完再出下一题"。 */
+export function say(parts: string | (string | SayPart)[], settings: Settings, onDone?: () => void): void {
+  const list = (Array.isArray(parts) ? parts : [parts]).map(p => (typeof p === 'string' ? { t: p } : p))
+  const baseRate = rateOf(settings)
+  cancelSpeakDone()
+  stopPackAudio()
+
+  // 音色包：所有分段都命中才整句走音频（避免同一句里混两种音色）
+  const clips = list.map(o => clipFor(o.t))
+  if (hasVoicePack() && clips.every(Boolean)) {
+    const rate = longestRate(list, baseRate)
+    if (native) native.stop()
+    else if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try { speechSynthesis.cancel() } catch (e) { /* 忽略 */ }
+    }
+    // 兜底超时放宽：音频段间有间隔，且失败回退 TTS 时也靠它保底
+    if (onDone) armSpeakDone(onDone, estimateMs(joinText(list), rate) + 1200)
+    playPack(clips as string[], packRate(rate), fireSpeakDone, () => {
+      // 自动播放被拦截 / 文件缺失 / 解码失败 → 整句回退系统 TTS
+      speakViaEngine(list, baseRate, onDone, false)
+    })
+    return
+  }
+
+  speakViaEngine(list, baseRate, onDone, true)
+}
+
 export function stopSpeak(): void {
   cancelSpeakDone()
+  stopPackAudio()
   if (native) { try { native.stop() } catch (e) { /* 忽略 */ } }
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try { speechSynthesis.cancel() } catch (e) { /* 忽略 */ }

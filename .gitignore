@@ -31,3 +31,7 @@ harmony-app/dfx-debug/
 .DS_Store
 Thumbs.db
 *.log
+
+# 本地密钥（TTS 等），禁止入库
+.env
+.env.*

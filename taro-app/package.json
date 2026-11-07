@@ -9,7 +9,10 @@
     "sync:harmony": "node scripts/sync-web.mjs harmony",
     "sync:android": "node scripts/sync-web.mjs android",
     "sync:ios": "node scripts/sync-web.mjs ios",
-    "sync:all": "node scripts/sync-web.mjs all"
+    "sync:all": "node scripts/sync-web.mjs all",
+    "voice:list": "node scripts/voice-pack.mjs list",
+    "voice:sample": "node scripts/voice-pack.mjs sample",
+    "voice:build": "node scripts/voice-pack.mjs build"
   },
   "author": "",
   "dependencies": {
