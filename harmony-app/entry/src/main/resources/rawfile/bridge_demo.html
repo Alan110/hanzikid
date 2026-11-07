@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JSBridge Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; font-size: 13px; padding: 8px; background: #fff; }
+    #status { padding: 6px 8px; background: #f0f7ff; border-radius: 6px; margin-bottom: 8px;
+              font-size: 12px; word-break: break-all; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+    button { padding: 8px 4px; font-size: 12px; border: none; border-radius: 6px;
+             background: #4a90d9; color: #fff; }
+    button:active { background: #357abd; }
+    button.warn { background: #d97a4a; }
+    #log { background: #222; color: #9f9; border-radius: 6px; padding: 8px;
+           font-family: monospace; font-size: 11px; height: 180px; overflow-y: auto;
+           white-space: pre-wrap; word-break: break-all; }
+    .row { display: flex; gap: 6px; margin-bottom: 8px; }
+    .row button { flex: 1; }
+  </style>
+</head>
+<body>
+  <div id="status">connecting...</div>
+  <div class="grid">
+    <button data-t="hello">1 hello 信息</button>
+    <button data-t="sync">2 同步读写</button>
+    <button data-t="async">3 异步 ping</button>
+    <button data-t="delay">4 延迟 2s 应答</button>
+    <button data-t="timeout" class="warn">5 超时(2s)</button>
+    <button data-t="storage">6 storage 往返</button>
+    <button data-t="eventUp">7 事件上行</button>
+    <button data-t="binUp">8 二进制上行</button>
+    <button data-t="test">9 自测</button>
+  </div>
+  <div class="row">
+    <button id="clear">清空日志</button>
+    <button id="info2">port/方法数</button>
+  </div>
+  <div id="log"></div>
+
+  <script src="jsbridge.js"></script>
+  <script>
+    (function () {
+      var logEl = document.getElementById('log');
+      var statusEl = document.getElementById('status');
+
+      function log(msg) {
+        var t = new Date().toLocaleTimeString();
+        var div = document.createElement('div');
+        div.textContent = '[' + t + '] ' + msg;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+      function err(e) {
+        log('✗ code=' + (e && e.code) + ' ' + (e && e.message));
+      }
+
+      // ---- 常驻监听：原生按钮触发 ----
+      Bridge.on('demo.tick', function (data) { log('← event demo.tick ' + JSON.stringify(data)); });
+      Bridge.on('demo.blobResult', function (data) { log('← event demo.blobResult ' + JSON.stringify(data)); });
+      Bridge.onBinary('demo.blob', function (buffer) {
+        var u8 = new Uint8Array(buffer);
+        var sum = 0;
+        for (var i = 0; i < u8.length; i++) { sum = (sum + u8[i]) & 0xFFFF; }
+        log('← binary demo.blob len=' + buffer.byteLength + ' checksum=' + sum);
+        Bridge.emit('demo.blobCheck', String(sum));
+      });
+      Bridge.onBinary('up.blob', function () { log('unexpected up.blob echo'); });
+
+      // ---- 1. hello / ready ----
+      Bridge.ready.then(function (info) {
+        statusEl.textContent = 'available=' + info.available +
+          ' pv=' + info.pv +
+          ' port=' + info.caps.port +
+          ' binary=' + info.caps.binary +
+          ' methods=' + (info.methods ? info.methods.length : 0);
+        log('ready: ' + JSON.stringify(info));
+      });
+
+      // ---- 按钮分发 ----
+      function genBlob(size) {
+        var u8 = new Uint8Array(size);
+        for (var i = 0; i < size; i++) { u8[i] = (i * 13 + 5) & 0xFF; }
+        return u8.buffer;
+      }
+
+      var actions = {
+        hello: function () {
+          Bridge.call('system.info').then(function (info) {
+            log('✓ system.info: ' + JSON.stringify(info));
+          }).catch(err);
+        },
+        sync: function () {
+          try {
+            var r1 = Bridge.callSync('storage.setSync', { key: 'demoSync', value: 'hello-sync-' + Date.now() });
+            var r2 = Bridge.callSync('storage.getSync', { key: 'demoSync' });
+            log('✓ sync set=' + JSON.stringify(r1) + ' get=' + JSON.stringify(r2));
+          } catch (e) { err(e); }
+        },
+        async: function () {
+          var t0 = Date.now();
+          Bridge.call('system.ping', { n: 1 }).then(function (pong) {
+            log('✓ ping roundtrip=' + (Date.now() - t0) + 'ms ' + JSON.stringify(pong));
+          }).catch(err);
+        },
+        delay: function () {
+          var t0 = Date.now();
+          Bridge.call('system.delayedEcho', { tag: 'delay-demo' }).then(function (v) {
+            log('✓ delayedEcho after ' + (Date.now() - t0) + 'ms: ' + JSON.stringify(v));
+          }).catch(err);
+        },
+        timeout: function () {
+          var t0 = Date.now();
+          Bridge.call('system.neverResolve', {}, { timeoutMs: 2000 }).then(function () {
+            log('✗ unexpected resolve');
+          }).catch(function (e) {
+            log((e.code === 40801 ? '✓' : '✗') + ' timeout after ' + (Date.now() - t0) +
+                'ms code=' + e.code + ' ' + e.message);
+          });
+        },
+        storage: function () {
+          var key = 'demoKey';
+          Bridge.call('storage.set', { key: key, value: 'v-' + Date.now() })
+            .then(function () { return Bridge.call('storage.get', { key: key }); })
+            .then(function (v) {
+              log('✓ storage.get=' + JSON.stringify(v));
+              return Bridge.call('storage.remove', { key: key });
+            })
+            .then(function () { return Bridge.call('storage.keys'); })
+            .then(function (keys) { log('✓ storage removed, keys=' + JSON.stringify(keys)); })
+            .catch(err);
+        },
+        eventUp: function () {
+          Bridge.emit('h5.ping', { t: Date.now() });
+          log('→ event h5.ping（见原生日志区）');
+        },
+        binUp: function () {
+          var buf = genBlob(256 * 1024);
+          var t0 = Date.now();
+          Bridge.sendBinary('up.blob', buf, '{"size":262144}')
+            .then(function () {
+              log('✓ sendBinary 256KB acked in ' + (Date.now() - t0) + 'ms（见原生日志区）');
+            })
+            .catch(err);
+        },
+        test: function () {
+          Bridge.call('test.run').then(function (result) {
+            log('✓ selftest:\n' + result);
+          }).catch(err);
+        }
+      };
+
+      document.querySelectorAll('button[data-t]').forEach(function (btn) {
+        btn.addEventListener('click', function () { actions[btn.dataset.t](); });
+      });
+      document.getElementById('clear').addEventListener('click', function () { logEl.innerHTML = ''; });
+      document.getElementById('info2').addEventListener('click', function () {
+        Bridge.call('system.info').then(function (info) {
+          log('portReady=' + info.portReady + ' methods=' + info.methodCount + ' server=' + info.version);
+        }).catch(err);
+      });
+    })();
+  </script>
+</body>
+</html>

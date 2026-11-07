@@ -1,0 +1,12 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "识字小乐园主模块",
+  "main": "",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@hanzi/jsbridge": "file:../jsbridge"
+  }
+}
