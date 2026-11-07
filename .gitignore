@@ -1,0 +1,33 @@
+# 工具缓存
+.cache/
+
+# Node / Vite
+node_modules/
+dist/
+
+# 鸿蒙构建产物（hvigor 已有内层 .gitignore，此为兜底）
+build/
+oh_modules/
+.hvigor/
+.cxx/
+
+# Android / Gradle
+.gradle/
+local.properties
+
+# iOS
+xcuserdata/
+DerivedData/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# DFX 调试临时产物
+harmony-app/dfx-debug/
+
+# 系统/临时
+.DS_Store
+Thumbs.db
+*.log
