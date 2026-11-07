@@ -1,11 +1,13 @@
 # 把「识字小乐园」装进原生鸿蒙平板
 
-这是一个 DevEco Studio 工程：用 ArkTS 的 Web 容器加载游戏（Taro 跨端版产物，
-打包在 `entry/src/main/resources/rawfile/web/` 里），装到平板后**完全离线**、
-有独立桌面图标，朗读走鸿蒙原生朗读引擎（CoreSpeechKit），读一读走
-端侧录音/识别（AudioKit + Speech Kit），进度存原生 Preferences（卸载重装不丢）。
+这是一个 DevEco Studio 工程：用 ArkTS 的 Web 容器加载游戏（React + Vite 的 Web
+内核产物，打包在 `entry/src/main/resources/rawfile/web/` 里），装到平板后
+**完全离线**、有独立桌面图标，朗读走鸿蒙原生朗读引擎（CoreSpeechKit），
+读一读走端侧录音/识别（AudioKit + Speech Kit），进度存原生 Preferences
+（卸载重装不丢）。
 
-游戏本体在 `../taro-app/`（Taro + React，一份代码出 H5/鸿蒙/Android/iOS 三端），
+游戏本体在 `../web-app/`（React + Vite，一份 Web 内核 + 三端原生壳跨端，
+详见 [docs/developer/cross-platform.md](docs/developer/cross-platform.md)），
 本工程只是鸿蒙壳；Android/iOS 壳见 `../android-shell/`、`../ios-shell/`。
 
 ## 打包安装步骤（Windows 电脑 + 鸿蒙平板）
@@ -28,10 +30,10 @@
 
 ## 更新游戏内容
 
-游戏本体在 `../taro-app/`，改完后：
+游戏本体在 `../web-app/`，改完后：
 
 ```bash
-cd ../taro-app
+cd ../web-app
 npm run build:h5 && npm run sync:harmony   # 产物同步到 rawfile/web/
 ```
 
