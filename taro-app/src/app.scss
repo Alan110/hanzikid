@@ -1,0 +1,22 @@
+/* 全局样式（从 style.css / index.html 的 body 部分原样迁移；
+ * 三端目标都是 WebView，完整 CSS 能力可用） */
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body, #app { height: 100%; }
+body {
+  font-family: 'ZCOOL KuaiLe', 'Yuanti SC', 'YouYuan', '幼圆', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+  overflow: hidden;
+  background: linear-gradient(180deg, #FFF6E5 0%, #FFEDE3 45%, #FDE7F2 100%);
+  color: #5b4632;
+}
+.kai { font-family: 'Kaiti SC', 'STKaiti', 'KaiTi', '楷体', 'AR PL UKai CN', 'Noto Serif CJK SC', serif; }
+
+@keyframes bumpK { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+.bump { animation: bumpK .5s; }
+
+/* Taro H5 页面容器默认有滚动行为，这里固定全屏 */
+.page-root { height: 100%; }
