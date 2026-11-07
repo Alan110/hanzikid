@@ -32,6 +32,9 @@ final class ViewController: UIViewController {
 
         let config = WKWebViewConfiguration()
         config.userContentController = content
+        // 音色包用 HTMLAudioElement 播放：放开自动播放限制（多数播报发生在点按后，
+        // 但进入页面时的引导语/切题播报需要无手势播放）
+        config.mediaTypesRequiringUserActionForPlayback = []
 
         webView = WKWebView(frame: view.bounds, configuration: config)
         webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]

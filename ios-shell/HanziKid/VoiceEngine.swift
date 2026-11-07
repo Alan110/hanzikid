@@ -28,6 +28,9 @@ final class VoiceEngine: NSObject, AVAudioRecorderDelegate, AVAudioPlayerDelegat
     }
 
     private let synth = AVSpeechSynthesizer()
+    /// 质量优先的中文音色：默认 `AVSpeechSynthesisVoice(language:)` 往往返回紧凑音（最机械），
+    /// 真机下载「增强/高级」音色后这里会自动择优使用
+    private lazy var voice: AVSpeechSynthesisVoice? = Self.pickVoice()
     private var recorder: AVAudioRecorder?
     private var meterTimer: Timer?
     private var peakLinear: Double = 0
@@ -43,12 +46,33 @@ final class VoiceEngine: NSObject, AVAudioRecorderDelegate, AVAudioPlayerDelegat
 
     /* ===== 朗读 ===== */
 
+    /// 按质量打分选中文音色：quality（default/enhanced/premium）为主，
+    /// premium/neural/Siri 标识加分，Eloquence 趣味音色直接排除（最机械且不适合识字）
+    private static func pickVoice() -> AVSpeechSynthesisVoice? {
+        let zh = AVSpeechSynthesisVoice.speechVoices().filter { $0.language == "zh-CN" }
+        let best = zh.map { v -> (AVSpeechSynthesisVoice, Int) in
+            var score = Int(v.quality.rawValue) * 10
+            let id = v.identifier.lowercased()
+            if id.contains("premium") { score += 6 }
+            if id.contains("neural") { score += 4 }
+            if id.contains("siri") { score += 3 }
+            if id.contains("tingting") { score += 2 }
+            if id.contains("eloquence") { score -= 20 }
+            return (v, score)
+        }.max { $0.1 < $1.1 }?.0
+        let picked = best ?? AVSpeechSynthesisVoice(language: "zh-CN")
+        if let v = picked {
+            NSLog("[HanziKid] TTS voice=%@ quality=%ld", v.identifier, v.quality.rawValue)
+        }
+        return picked
+    }
+
     func speak(text: String, rate: Double, id: String) {
         // 游戏侧 rate：1.0 约为常速，单字约 0.65（更慢）；
         // AVSpeechUtteranceRate 范围 0～1（默认 0.5），线性压到自然区间
         let u = SpeakUtterance(string: text)
         u.speakId = id
-        u.voice = AVSpeechSynthesisVoice(language: "zh-CN")
+        u.voice = voice
         u.rate = Float(min(0.62, max(0.1, 0.12 + 0.42 * rate)))
         u.pitchMultiplier = 1.0
         synth.delegate = self
