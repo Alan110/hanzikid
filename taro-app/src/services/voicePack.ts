@@ -7,7 +7,7 @@
  * 文本 key 归一化规则必须与生成脚本 keyOf() 完全一致：
  * 去掉标点、emoji、空格，只保留汉字/字母/数字。
  */
-import { VOICE_PACK } from './voiceManifest.generated'
+import { VOICE_PACK, VOICE_PACK_READY } from './voiceManifest.generated'
 
 /** 归一化文本 → manifest key（与 scripts/voice-pack.mjs 的 keyOf 保持一致） */
 export const packKey = (s: string): string => s.replace(/[^一-鿿a-zA-Z0-9]/g, '')
@@ -17,8 +17,14 @@ export function clipFor(text: string): string | undefined {
   return VOICE_PACK[packKey(text)]
 }
 
-export function hasVoicePack(): boolean {
-  return Object.keys(VOICE_PACK).length > 0
+/** 音包是否完整可用：只有核心语料全部生成后才启用，避免半套音包音色忽真忽机械 */
+export function isVoicePackReady(): boolean {
+  return VOICE_PACK_READY && Object.keys(VOICE_PACK).length > 0
+}
+
+/** 音包已生成的条目数（调试/诊断用） */
+export function voicePackSize(): number {
+  return Object.keys(VOICE_PACK).length
 }
 
 /** 家长速度档位 → 音包播放倍率（音包录制时已是「略慢」，只做小幅调整避免变调） */

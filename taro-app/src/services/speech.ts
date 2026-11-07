@@ -2,7 +2,7 @@
 import { native } from './native'
 import { RATES } from '../game/copy'
 import type { Settings } from './store'
-import { clipFor, hasVoicePack, packRate, playPack, stopPackAudio } from './voicePack'
+import { clipFor, isVoicePackReady, packRate, playPack, stopPackAudio } from './voicePack'
 
 export const rateOf = (settings: Settings): number => RATES[settings.rate] || 0.95
 
@@ -172,7 +172,7 @@ export function say(parts: string | (string | SayPart)[], settings: Settings, on
 
   // 音色包：所有分段都命中才整句走音频（避免同一句里混两种音色）
   const clips = list.map(o => clipFor(o.t))
-  if (hasVoicePack() && clips.every(Boolean)) {
+  if (isVoicePackReady() && clips.every(Boolean)) {
     const rate = longestRate(list, baseRate)
     if (native) native.stop()
     else if (typeof window !== 'undefined' && 'speechSynthesis' in window) {

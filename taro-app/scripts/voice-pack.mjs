@@ -125,9 +125,9 @@ function readDataEntries() {
 }
 
 function buildCorpus() {
-  /** key -> { text, score } */
+  /** key -> { text, score, prio }；prio 越小越先合成（额度有限时优先核心内容） */
   const map = new Map()
-  const add = (raw) => {
+  const add = (raw, prio = 4) => {
     const s = (raw || '').trim()
     if (!s || s.length > 50) return
     // 「」片段（代码里拼接用的左/右半截）跳过，完整短语由派生模板补齐
@@ -139,29 +139,36 @@ function buildCorpus() {
     // 同一 key 优先保留带中文标点的版本（停顿更自然）
     const score = (text.match(/[，。！？、；：,.!?;:]/g) || []).length
     const prev = map.get(key)
-    if (!prev || score > prev.score) map.set(key, { text, score })
+    const p = Math.min(prev ? prev.prio : 99, prio)
+    if (!prev || score > prev.score) map.set(key, { text, score, prio: p })
+    else prev.prio = p
   }
 
   const { pairs, names } = readDataEntries()
   for (const { c, w } of pairs) {
-    add(c)
-    add(`这是${c}`)
-    add(`这个字念${c}`)
-    add(`我们要找的是${c}哦`)
+    add(c, 1)                                  // 单字：最高频
+    add(`这是${c}`, 2)                          // 答对反馈 / 认字卡
+    add(`这个字念${c}`, 3)                      // 答错解释
+    add(`我们要找的是${c}哦`, 3)
     if (w) {
-      add(w)
-      add(`${w}的${c}`)
-      add(`我们要找的是${w}的${c}哦`)
+      add(w, 1)                                // 词语：最高频
+      add(`${w}的${c}`, 2)                      // 「小马的马」
+      add(`我们要找的是${w}的${c}哦`, 3)
     }
   }
-  for (const n of names) add(n)
+  for (const n of names) add(n, 1)
+
+  // copy.ts 是高频台词（夸奖/引导语/结算），排在 UI 文案之前
+  const copyPath = path.join(SRC, 'game', 'copy.ts')
+  for (const s of extractStrings(readFileSync(copyPath, 'utf8'))) add(s, 2)
 
   for (const file of walk(SRC)) {
-    for (const s of extractStrings(readFileSync(file, 'utf8'))) add(s)
+    if (file === copyPath) continue
+    for (const s of extractStrings(readFileSync(file, 'utf8'))) add(s, 4)
   }
 
   // 固定短句（拼接用的部分不在完整字符串里）
-  for (const s of ['这是', '跟我读：', '别急，它在这里', '这个字念', '我们要找的是']) add(s)
+  for (const s of ['这是', '跟我读：', '别急，它在这里', '这个字念', '我们要找的是']) add(s, 2)
 
   return map
 }
@@ -172,7 +179,7 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms))
 }
 
-function synthOnce(text, { appId, apiKey, apiSecret }, { voice, speed }) {
+function synthOnce(text, { appId, apiKey, apiSecret }, { voice, speed, pitch = 50, volume = 60 }) {
   if (typeof WebSocket === 'undefined') {
     throw new Error('当前 Node 没有全局 WebSocket，请使用 Node 22+')
   }
@@ -191,8 +198,8 @@ function synthOnce(text, { appId, apiKey, apiSecret }, { voice, speed }) {
       sfl: 1,
       vcn: voice,
       speed,            // 0-100，默认 50；儿童略慢
-      volume: 60,
-      pitch: 50,
+      volume,
+      pitch,            // 0-100，默认 50；调高更年轻/可爱
       tte: 'UTF8',
     },
     data: {
@@ -280,28 +287,34 @@ function parseArgs(argv) {
 function cmdList() {
   const corpus = buildCorpus()
   mkdirSync(CACHE, { recursive: true })
-  const list = [...corpus.entries()].map(([k, v]) => ({ key: k, text: v.text })).sort((a, b) => a.key.localeCompare(b.key, 'zh'))
+  const list = [...corpus.entries()]
+    .map(([k, v]) => ({ key: k, text: v.text, prio: v.prio }))
+    .sort((a, b) => (a.prio - b.prio) || a.key.localeCompare(b.key, 'zh'))
   writeFileSync(path.join(CACHE, 'corpus.json'), JSON.stringify(list, null, 2))
-  console.log(`语料 ${list.length} 条（已写入 .cache/voice-pack/corpus.json）`)
+  const byPrio = { 1: 0, 2: 0, 3: 0, 4: 0 }
+  for (const v of corpus.values()) byPrio[v.prio]++
+  console.log(`语料 ${list.length} 条（优先级：单字/词 ${byPrio[1]}，核心短语 ${byPrio[2]}，解释句 ${byPrio[3]}，其他 ${byPrio[4]}）`)
   console.log('示例：')
-  for (const x of list.slice(0, 15)) console.log(`  ${x.text}`)
+  for (const x of list.slice(0, 15)) console.log(`  [${x.prio}] ${x.text}`)
 }
 
 async function cmdSample(args) {
   const creds = requireCreds()
   const speed = Number(args.speed || DEFAULT_SPEED)
+  const pitch = Number(args.pitch || 50)
+  const volume = Number(args.volume || 60)
   mkdirSync(SAMPLE_DIR, { recursive: true })
   const voices = args.voice ? [args.voice] : SAMPLE_VOICES
   let ok = 0
   for (const voice of voices) {
     for (let i = 0; i < SAMPLE_TEXTS.length; i++) {
       const text = SAMPLE_TEXTS[i]
-      const out = path.join(SAMPLE_DIR, `${voice}-${i + 1}.mp3`)
+      const out = path.join(SAMPLE_DIR, `${voice}-s${speed}-p${pitch}-${i + 1}.mp3`)
       try {
-        const buf = await synthWithRetry(text, creds, { voice, speed })
+        const buf = await synthWithRetry(text, creds, { voice, speed, pitch, volume })
         writeFileSync(out, buf)
         ok++
-        console.log(`✓ ${voice} ${i + 1}: ${text} → ${out}`)
+        console.log(`✓ ${voice} s=${speed} p=${pitch} ${i + 1}: ${text} → ${out}`)
       } catch (e) {
         console.warn(`✗ ${voice} ${i + 1} 失败：${e.message}`)
         break
@@ -319,25 +332,32 @@ async function cmdBuild(args) {
   const creds = requireCreds()
   const voice = args.voice || DEFAULT_VOICE
   const speed = Number(args.speed || DEFAULT_SPEED)
+  const pitch = Number(args.pitch || 50)
+  const volume = Number(args.volume || 60)
   const limit = args.limit ? Number(args.limit) : 0
+  const max = args.max ? Number(args.max) : 0
   const force = !!args.force
 
   let corpus = buildCorpus()
-  let entries = [...corpus.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh'))
+  // 额度有限时优先合成核心内容：单字/词语 → 高频短语 → 解释句 → UI 文案
+  let entries = [...corpus.entries()].sort((a, b) => (a[1].prio - b[1].prio) || a[0].localeCompare(b[0], 'zh'))
   if (limit > 0) entries = entries.slice(0, limit)
 
   mkdirSync(AUDIO_DIR, { recursive: true })
-  const fileOf = (key) => createHash('sha1').update(`${voice}\n${key}`).digest('hex').slice(0, 20) + '.mp3'
+  // 音色/语速/音高都参与 hash：调参后不会误用旧音频
+  const fileOf = (key) => createHash('sha1').update(`${voice}|${speed}|${pitch}|${volume}\n${key}`).digest('hex').slice(0, 20) + '.mp3'
 
-  const todo = entries.filter(([key]) => force || !existsSync(path.join(AUDIO_DIR, fileOf(key))))
-  console.log(`音色包：${voice}，语速 ${speed}；语料 ${entries.length} 条，待生成 ${todo.length} 条`)
+  let todo = entries.filter(([key]) => force || !existsSync(path.join(AUDIO_DIR, fileOf(key))))
+  // 每日额度有限时只跑前 N 条（按优先级排序），避免把剩余请求全部撞到 11201
+  if (max > 0) todo = todo.slice(0, max)
+  console.log(`音色包：${voice}，语速 ${speed}，音高 ${pitch}；语料 ${entries.length} 条，本次待生成 ${todo.length} 条`)
 
   let done = 0
   const failures = []
   await runPool(todo, 4, async ([key, { text }]) => {
     const file = fileOf(key)
     try {
-      const buf = await synthWithRetry(text, creds, { voice, speed })
+      const buf = await synthWithRetry(text, creds, { voice, speed, pitch, volume })
       writeFileSync(path.join(AUDIO_DIR, file), buf)
     } catch (e) {
       failures.push({ text, error: e.message })
@@ -348,16 +368,21 @@ async function cmdBuild(args) {
     }
   })
 
-  // manifest 只收录实际存在的文件
+  // manifest 只收录实际存在的文件；核心内容（prio<=3）全部就绪才算可用，
+  // 避免半套音包导致同一局里音色忽真忽机械
   const manifest = entries
     .map(([key]) => [key, fileOf(key)])
     .filter(([, file]) => existsSync(path.join(AUDIO_DIR, file)))
     .sort((a, b) => a[0].localeCompare(b[0], 'zh'))
+  const core = entries.filter(([, v]) => v.prio <= 3)
+  const missingCore = core.filter(([key]) => !existsSync(path.join(AUDIO_DIR, fileOf(key))))
+  const ready = missingCore.length === 0
 
   const lines = manifest.map(([key, file]) => `  ${JSON.stringify(key)}: ${JSON.stringify(`audio/vp/${file}`)},`)
   const ts = `// AUTO-GENERATED by scripts/voice-pack.mjs — 请勿手改
-// 生成命令：npm run voice:build -- --voice ${voice}
+// 生成命令：npm run voice:build -- --voice ${voice} --speed ${speed} --pitch ${pitch}
 export const VOICE_PACK_VOICE = ${JSON.stringify(voice)}
+export const VOICE_PACK_READY = ${ready}
 export const VOICE_PACK_GENERATED_AT = ${JSON.stringify(new Date().toISOString())}
 export const VOICE_PACK: Record<string, string> = {
 ${lines.join('\n')}
@@ -367,6 +392,11 @@ ${lines.join('\n')}
   const totalBytes = manifest.reduce((n, [, file]) => n + statSync(path.join(AUDIO_DIR, file)).size, 0)
   console.log(`\nmanifest: ${manifest.length} 条 → ${path.relative(appRoot, MANIFEST_TS)}`)
   console.log(`音频: ${(totalBytes / 1024 / 1024).toFixed(2)} MB → ${path.relative(appRoot, AUDIO_DIR)}`)
+  if (!ready) {
+    console.warn(`\n核心语料还缺 ${missingCore.length} 条，VOICE_PACK_READY=false（App 暂继续用系统 TTS）。重跑可续传。`)
+  } else {
+    console.log('核心语料已齐，VOICE_PACK_READY=true。')
+  }
   if (failures.length) {
     console.warn(`\n失败 ${failures.length} 条（可重跑续传）：`)
     for (const f of failures.slice(0, 10)) console.warn(`  ${f.text}: ${f.error}`)

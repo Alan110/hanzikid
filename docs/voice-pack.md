@@ -64,15 +64,24 @@ chmod 600 ~/.hanzikid-tts.env
 
 ```bash
 cd taro-app
-npm run voice:list                 # 抽语料，打印数量与样例
+npm run voice:list                 # 抽语料，打印数量与优先级分布
 npm run voice:sample               # 生成候选音色样音到 ~/Desktop/hanzikid-tts-samples/
-npm run voice:build -- --voice xiaoyan
-npm run build:h5 && npm run sync:all && npm run sync:ios
+npm run voice:build -- --voice xiaoyan --speed 50 --pitch 58 --max 500
+npm run build:h5 && npm run sync:all
 ```
 
-- 默认音色 `xiaoyan`（小燕，温柔女声）；候选：`aisxping`（小萍）、`aisjinger`（小婧）。
+- 默认音色 `xiaoyan`（小燕，温柔女声）；可用 `--speed` / `--pitch`（0–100）微调可爱度与活力。
+- 候选：`aisxping`（小萍）、`aisjinger`（小婧）、`aisbabyxu`（童声许小宝）。
 - `voice:build` 可断点续跑：已存在的音频跳过，`--force` 全量重生成。
 - 生成后 `voiceManifest.generated.ts` 与 `public/audio/vp/*` 一并提交（保证无密钥环境也能构建）。
+
+### 额度与续跑
+
+- 讯飞在线 TTS 免费额度约 **500 次/天**，超限返回 `11201 licc failed`（license 校验失败，不是配置错误）。
+- `--max 500` 只跑当日额度，次日重跑自动续传；也可在讯飞控制台领取免费次数包或购买量包后一次跑完。
+- 生成按优先级排序：单字/词语 → 高频短语 → 答错解释句 → UI 文案，额度紧张时先保证最常听的内容。
+- 核心语料（优先级 ≤3）未齐时 manifest 写 `VOICE_PACK_READY = false`，App 继续用系统 TTS，
+  避免半套音包导致同一局里音色忽真忽机械；齐全后自动启用。
 
 ## 6. 验收
 
