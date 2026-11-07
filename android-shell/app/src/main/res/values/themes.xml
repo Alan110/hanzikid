@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 全屏无标题栏；游戏背景色打底，避免启动白屏刺眼 -->
+    <style name="Theme.HanziKid" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFF6E5</item>
+        <item name="android:statusBarColor">#FFF6E5</item>
+        <item name="android:navigationBarColor">#FFF6E5</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>
