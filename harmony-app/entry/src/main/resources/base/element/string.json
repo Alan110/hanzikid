@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "识字小乐园主模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "幼儿识字游戏"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "识字小乐园"
+    },
+    {
+      "name": "mic_reason",
+      "value": "读一读玩法需要用麦克风录制小朋友的跟读发音，进行读音评测"
+    }
+  ]
+}

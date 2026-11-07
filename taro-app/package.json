@@ -1,0 +1,28 @@
+{
+  "name": "hanzi-kid-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "识字小乐园 Web 内核（React + Vite，产物供鸿蒙/Android/iOS 三端 WebView 壳加载）",
+  "scripts": {
+    "dev": "vite",
+    "build:h5": "vite build",
+    "sync:harmony": "node scripts/sync-web.mjs harmony",
+    "sync:android": "node scripts/sync-web.mjs android",
+    "sync:ios": "node scripts/sync-web.mjs ios",
+    "sync:all": "node scripts/sync-web.mjs all"
+  },
+  "author": "",
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "sass": "^1.75.0",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.0"
+  }
+}
