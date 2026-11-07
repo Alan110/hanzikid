@@ -6,8 +6,7 @@
 读一读走端侧录音/识别（AudioKit + Speech Kit），进度存原生 Preferences
 （卸载重装不丢）。
 
-游戏本体在 `../web-app/`（React + Vite，一份 Web 内核 + 三端原生壳跨端，
-详见 [docs/developer/cross-platform.md](docs/developer/cross-platform.md)），
+游戏本体在 `../taro-app/`（React + Vite，一份 Web 内核 + 三端原生壳跨端），
 本工程只是鸿蒙壳；Android/iOS 壳见 `../android-shell/`、`../ios-shell/`。
 
 ## 打包安装步骤（Windows 电脑 + 鸿蒙平板）
@@ -30,10 +29,12 @@
 
 ## 更新游戏内容
 
-游戏本体在 `../web-app/`，改完后：
+`entry/src/main/resources/rawfile/web/` **不入库**（`.gitignore`），
+首次 clone / 切分支或改完 Web 内核后，先同步：
 
 ```bash
-cd ../web-app
+cd ../taro-app
+npm install
 npm run build:h5 && npm run sync:harmony   # 产物同步到 rawfile/web/
 ```
 

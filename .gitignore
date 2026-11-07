@@ -27,6 +27,11 @@ DerivedData/
 # DFX 调试临时产物
 harmony-app/dfx-debug/
 
+# 三壳内嵌 Web 产物（由 taro-app: npm run build:h5 + sync:all 生成，不入库）
+ios-shell/HanziKid/www/
+android-shell/app/src/main/assets/www/
+harmony-app/entry/src/main/resources/rawfile/web/
+
 # 系统/临时
 .DS_Store
 Thumbs.db

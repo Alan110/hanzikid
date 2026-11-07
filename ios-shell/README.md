@@ -10,6 +10,14 @@ Windows 开发机无法生成/验证 Xcode 工程，本目录已包含**可直�
 
 ## 运行方式
 
+首次 clone 或切分支后，先同步 Web 产物（`www/` 不入库）：
+
+```bash
+cd ../taro-app && npm install && npm run build:h5 && npm run sync:ios
+```
+
+然后：
+
 ```bash
 open HanziKid.xcodeproj      # Xcode 打开后选模拟器/真机直接 Run
 ```

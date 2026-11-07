@@ -12,13 +12,16 @@ HanziKid/
   HanziNativeBridge.swift  桥实现（messageHandlers 异步通道 + kv 注入时快照）
   VoiceEngine.swift        AVSpeechSynthesizer TTS + AVAudioRecorder 录音 + SFSpeechRecognizer
   Info.plist               含 UIApplicationSceneManifest（iOS 27 SDK 起强制 Scene 生命周期）
-  www/                     ★ 构建产物，由 sync:ios 生成，勿手改（工程内为蓝色文件夹引用）
+  www/                     ★ 构建产物，由 sync:ios 生成，勿手改（蓝色文件夹引用，不入库）
 HanziKid.xcodeproj/        可直接打开的工程（共享 Scheme），Mac 上 open 即可 Run
 ```
 
 ## 运行
 
-- `open HanziKid.xcodeproj` 直接 Run；命令行：`xcodebuild -project HanziKid.xcodeproj -scheme HanziKid -destination 'platform=iOS Simulator,name=iPad (A16)' build`
+- 首次 clone 或切分支后先同步产物（`www/` 不入库）：
+  `cd ../taro-app && npm install && npm run build:h5 && npm run sync:ios`
+- `open HanziKid.xcodeproj` 直接 Run；Xcode 构建前会自动检查 `www/index.html` 是否存在，缺失会报错提示
+- 命令行：`xcodebuild -project HanziKid.xcodeproj -scheme HanziKid -destination 'platform=iOS Simulator,name=iPad (A16)' build`
 - 真机需在 target → Signing 选择 Team；Bundle ID `com.alan.hanzikid`（三端一致）
 
 ## 规则

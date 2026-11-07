@@ -6,10 +6,14 @@
 
 ## 页面产物更新
 
+`app/src/main/assets/www/` **不入库**（`.gitignore`），首次 clone 或切分支后先同步：
+
 ```bash
 cd ../taro-app
 npm run build:h5 && npm run sync:android
 ```
+
+不同步直接 Run 会白屏（assets/www 缺失）。
 
 ## 用 Android Studio 打开
 
